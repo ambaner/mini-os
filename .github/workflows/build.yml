@@ -1,0 +1,61 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup NASM
+      uses: ilammy/setup-nasm@v1
+
+    - name: Build mini-os
+      run: .\build.bat
+      shell: cmd
+
+    - name: Verify build outputs
+      shell: pwsh
+      run: |
+        $mbr = "build\boot\mbr.bin"
+        $vhd = "build\boot\mini-os.vhd"
+
+        if (-not (Test-Path $mbr)) { throw "mbr.bin not found" }
+        if (-not (Test-Path $vhd)) { throw "mini-os.vhd not found" }
+
+        $mbrSize = (Get-Item $mbr).Length
+        if ($mbrSize -ne 512) { throw "mbr.bin is $mbrSize bytes (expected 512)" }
+
+        # Verify MBR boot signature
+        $bytes = [System.IO.File]::ReadAllBytes($mbr)
+        if ($bytes[510] -ne 0x55 -or $bytes[511] -ne 0xAA) {
+            throw "MBR boot signature missing (expected 0x55AA)"
+        }
+
+        # Verify VHD footer cookie
+        $vhdBytes = [System.IO.File]::ReadAllBytes($vhd)
+        $footerStart = $vhdBytes.Length - 512
+        $cookie = [System.Text.Encoding]::ASCII.GetString($vhdBytes, $footerStart, 8)
+        if ($cookie -ne 'conectix') {
+            throw "VHD footer cookie is '$cookie' (expected 'conectix')"
+        }
+
+        Write-Host "Build verification passed:"
+        Write-Host "  mbr.bin : $mbrSize bytes, signature OK"
+        Write-Host "  mini-os.vhd : $($vhdBytes.Length) bytes, VHD footer OK"
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: mini-os-build
+        path: |
+          build/boot/mbr.bin
+          build/boot/mini-os.vhd
+        retention-days: 30
