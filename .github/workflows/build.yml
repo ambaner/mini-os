@@ -41,11 +41,19 @@ jobs:
             throw "MBR boot signature missing"
         }
 
-        # VBR: 512 bytes + boot signature
+        # VBR: 512 bytes + boot signature + MNOS header
         $vbrBytes = [System.IO.File]::ReadAllBytes($vbr)
         if ($vbrBytes.Length -ne 512) { throw "vbr.bin is $($vbrBytes.Length) bytes (expected 512)" }
         if ($vbrBytes[510] -ne 0x55 -or $vbrBytes[511] -ne 0xAA) {
             throw "VBR boot signature missing"
+        }
+        $magic = [System.Text.Encoding]::ASCII.GetString($vbrBytes, 3, 4)
+        if ($magic -ne 'MNOS') {
+            throw "VBR magic is '$magic' (expected 'MNOS')"
+        }
+        $bootSectors = [BitConverter]::ToUInt16($vbrBytes, 7)
+        if ($bootSectors -lt 1 -or $bootSectors -gt 128) {
+            throw "VBR boot sectors = $bootSectors (expected 1-128)"
         }
 
         # Disk image: partition table present
@@ -63,7 +71,7 @@ jobs:
 
         Write-Host "Build verification passed:"
         Write-Host "  mbr.bin      : $($mbrBytes.Length) bytes, signature OK"
-        Write-Host "  vbr.bin      : $($vbrBytes.Length) bytes, signature OK"
+        Write-Host "  vbr.bin      : $($vbrBytes.Length) bytes, signature OK, magic MNOS, boot sectors $bootSectors"
         Write-Host "  mini-os.img  : $($imgBytes.Length) bytes, partition table OK"
         Write-Host "  mini-os.vhd  : $($vhdBytes.Length) bytes, VHD footer OK"
 

@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.1] — 2026-05-11
+
+### Added
+- **Multi-sector VBR loading** — MBR reads boot-area sector count from VBR header, loads all N sectors (default 16 = 8 KB)
+- **VBR header** — self-describing format: `JMP SHORT` + `NOP` + `'MNOS'` magic + sector count at offset 7
+- CI verification of VBR header magic (`MNOS`) and sector count validity
+
+### Changed
+- MBR uses two-phase disk read: load 1 sector → parse header → reload all boot-area sectors
+- Heavily commented both `mbr.asm` and `vbr.asm` for educational readability
+- Trimmed MBR error messages to fit new loading code within 446-byte limit (17 bytes free)
+
 ## [0.2.0] — 2026-05-11
 
 ### Added

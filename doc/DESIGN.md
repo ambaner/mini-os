@@ -98,7 +98,7 @@ partition.
 | `0x0000:0x0000` – `0x0000:0x03FF` | Real-mode Interrupt Vector Table (IVT) |
 | `0x0000:0x0400` – `0x0000:0x04FF` | BIOS Data Area (BDA)               |
 | `0x0000:0x7C00` – `0x0000:0x7DFF` | **MBR code (512 bytes)** → later overwritten by VBR |
-| `0x0000:0x7E00` – `0x0000:0x7FFF` | VBR load buffer (temporary, before copy to 0x7C00) |
+| `0x0000:0x7E00` – `0x0000:0x9DFF` | VBR load buffer (N sectors, before copy to 0x7C00) |
 | `0x0000:0x7BFE` ↓                 | Stack (grows downward from 0x7C00) |
 
 ### 2.3 MBR Binary Format
@@ -128,18 +128,38 @@ from the first entry marked active (`0x80`).
 
 ### 2.4 Volume Boot Record (VBR)
 
-The VBR (`src/boot/vbr.asm`) is a 512-byte binary loaded from the first sector of the
-active partition. The MBR reads it to `0x7E00` via `INT 13h AH=42h` (LBA extended read),
-then copies it to `0x7C00` and jumps to it. Currently the VBR prints
-`"In boot sector now"` followed by `"mini-os boot completed"` and halts.
+The VBR (`src/boot/vbr.asm`) occupies the boot area at the start of the active
+partition. It has a self-describing header that the MBR reads to determine how
+many sectors to load:
+
+```
+VBR Header (starts at byte 0 of the partition):
+  Offset 0:   EB xx      JMP SHORT past header
+  Offset 2:   90         NOP
+  Offset 3:   'MNOS'     Magic identifier (4 bytes)
+  Offset 7:   dw N       Boot area size in sectors (currently 16 = 8 KB)
+```
+
+The MBR performs a two-phase load:
+1. **Phase 1** — Read the first sector to `0x7E00` and parse the header.
+2. **Phase 2** — Re-read all N sectors (from the header) to `0x7E00`.
+3. Copy N sectors from `0x7E00` to `0x7C00` and jump.
+
+Currently the VBR code fits in one sector; the remaining 15 are reserved for
+future features (protected mode switch, kernel loader, etc.). As the code
+grows, the VBR binary simply gets larger — no build changes needed.
+
+Currently the VBR prints `"In boot sector now"` followed by
+`"mini-os boot completed"` and halts.
 
 ### 2.5 Disk Layout
 
 ```
 Sector 0                → MBR (code + partition table + 0xAA55)
 Sectors 1–2047          → Gap (zeroed, reserved)
-Sector 2048             → VBR (active partition start)
-Sectors 2049–32767      → Partition data (zeroed, future use)
+Sector 2048             → VBR sector 0 (header + code, active partition start)
+Sectors 2049–2063       → VBR sectors 1–15 (reserved boot area, zeroed)
+Sectors 2064–32767      → Partition data (zeroed, future use)
 ```
 
 The MBR is a flat 512-byte binary. NASM's `-f bin` output format produces a raw binary
@@ -347,7 +367,7 @@ This document will be updated as the project evolves. Planned milestones:
 | Milestone | Description |
 |-----------|-------------|
 | **M0** ✅ | Boot MBR, print banner, halt |
-| **M1** ✅ | Partition table scan, VBR chain-load from active partition |
+| **M1** ✅ | Partition table scan, VBR chain-load, multi-sector boot area (16 sectors / 8 KB) |
 | **M2** | Switch to 32-bit protected mode |
 | **M3** | Basic kernel with screen output (direct VGA framebuffer) |
 | **M4** | Interrupt handling (keyboard input) |
