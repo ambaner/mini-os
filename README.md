@@ -1,9 +1,9 @@
 # mini-os
 
 A minimalistic operating system, built from scratch.
-Currently: MBR reads the partition table, chain-loads a multi-sector VBR from the active
-partition, and the VBR displays four pages of system information (memory, BDA, video/disk,
-IVT) before halting.
+Currently: MBR reads the partition table, chain-loads a multi-sector VBR, and the VBR
+drops into an interactive shell (`mnos:\>`) where you can run commands like `sysinfo`
+to display system information.
 
 ![mini-os booting in Hyper-V](doc/booted.gif)
 
@@ -40,9 +40,15 @@ setup-vm.bat
 
 The script will prompt for a VM name and location (defaults are fine), then create a Gen 1 / 32 MB RAM VM with no network adapter. On repeat runs it stops the VM, swaps in the latest VHD, and leaves it ready to start.
 
-You should see the MBR banner, partition table info, then four pages of system information
-(memory layout, BIOS data area, video & disk info, interrupt vector table) with
-"Press any key..." between each page.
+You should see the MBR banner and partition table info, then the shell:
+
+```
+  MNOS v0.2.5
+
+mnos:\>
+```
+
+Type `help` for a list of commands, or `sysinfo` for system information.
 
 ```powershell
 Start-VM -Name 'mini-os'           # start the VM
@@ -63,7 +69,7 @@ mini-os/
 ├── src/
 │   └── boot/
 │       ├── mbr.asm           # MBR — partition table scan + VBR chain-load
-│       └── vbr.asm           # VBR — 4-page system info display (16 sectors)
+│       └── vbr.asm           # VBR — interactive shell + sysinfo (16 sectors)
 ├── tools/
 │   ├── build.ps1             # Build logic (called by build.bat)
 │   ├── create-disk.ps1       # Partitioned raw disk image creator

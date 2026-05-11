@@ -7,9 +7,9 @@ architecture. The project is educational — designed so anyone can clone the re
 build a bootable disk image, and run it in a Hyper-V virtual machine with no prior
 OS-development experience.
 
-The current milestone is **M1+ : System Information Display** — the MBR reads and displays
-the partition table, chain-loads the multi-sector VBR, and the VBR displays four pages of
-system information (memory, BDA, video/disk, IVT).
+The current milestone is **M2: Interactive Shell** — the MBR reads and displays
+the partition table, chain-loads the multi-sector VBR, and the VBR drops into an
+interactive command shell with a `mnos:\>` prompt.
 
 ### Design Principles
 
@@ -85,10 +85,10 @@ system information (memory, BDA, video/disk, IVT).
                                   v
                             ┌────────────┐
                             │  vbr.asm   │
-                            │  System    │
-                            │  Info (4   │
-                            │  pages)    │
-                            │  → halt    │
+                            │  Shell     │
+                            │  mnos:\>   │
+                            │  (sysinfo, │
+                            │  help...)  │
                             └────────────┘
 ```
 
@@ -152,9 +152,24 @@ Sector 0 contains the header, a near-jump trampoline, and the boot signature
 (`0xAA55`) at offset 510. The actual VBR code begins in sector 1 (offset 512),
 since the code + data exceed 510 bytes.
 
-#### System Information Display
+#### Interactive Shell
 
-The VBR displays four pages of system information, with "Press any key..."
+After clearing the screen and displaying a version banner (`MNOS v0.2.5`), the
+VBR enters an interactive command loop with a `mnos:\>` prompt.  The shell reads
+a line of input via INT 16h, converts to lowercase, and dispatches to a handler:
+
+| Command | Description |
+|---------|-------------|
+| `sysinfo` | Display 4 pages of system information (memory, BDA, video/disk, IVT) |
+| `help` | List available commands |
+| `cls` | Clear the screen and re-display banner |
+| `reboot` | Warm-reboot the system (BIOS reset vector) |
+
+Unknown commands print `Unknown command: <input>` and re-prompt.
+
+#### System Information Display (`sysinfo`)
+
+The `sysinfo` command displays four pages of system information, with "Press any key..."
 between each page and a screen clear before each new page:
 
 | Page | Title | Information |
@@ -168,6 +183,8 @@ between each page and a screen clear before each new page:
 
 | Routine | Description |
 |---------|-------------|
+| `readline` | Read line of input into buffer (backspace, auto-lowercase) |
+| `strcmp` | Compare two NUL-terminated strings, set ZF if equal |
 | `puts` | Print NUL-terminated string via INT 10h AH=0Eh |
 | `putc` | Print single character |
 | `puthex8` | Print AL as two hex digits |
@@ -357,7 +374,7 @@ mini-os/
 ├── src/
 │   └── boot/
 │       ├── mbr.asm               MBR — partition table scan + VBR chain-load
-│       └── vbr.asm               VBR — 4-page system info display (16 sectors)
+│       └── vbr.asm               VBR — interactive shell + sysinfo (16 sectors)
 ├── tools/
 │   ├── build.ps1                 Build logic
 │   ├── create-disk.ps1           Raw disk image with partition table + VBR
@@ -392,11 +409,11 @@ This document will be updated as the project evolves. Planned milestones:
 | **M0** ✅ | Boot MBR, print banner, halt |
 | **M1** ✅ | Partition table scan, VBR chain-load, multi-sector boot area (16 sectors / 8 KB) |
 | **M1+** ✅ | VBR system information display (4 pages: memory, BDA, video/disk, IVT) |
-| **M2** | Switch to 32-bit protected mode |
-| **M3** | Basic kernel with screen output (direct VGA framebuffer) |
-| **M4** | Interrupt handling (keyboard input) |
-| **M5** | Simple memory manager |
-| **M6** | Basic shell / command prompt |
+| **M2** ✅ | Interactive shell (`mnos:\>`) with command dispatch, `sysinfo` as first command |
+| **M3** | A20 gate enable + kernel binary load from disk |
+| **M4** | Switch to 32-bit protected mode |
+| **M5** | Basic kernel with screen output (direct VGA framebuffer) |
+| **M6** | Simple memory manager |
 
 ---
 

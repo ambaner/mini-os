@@ -58,8 +58,8 @@ jobs:
         ============
 
         A minimalistic bootable OS. MBR reads the partition table, loads the
-        multi-sector VBR from the active partition. The VBR displays four pages
-        of system information (memory, BDA, video/disk, IVT).
+        multi-sector VBR from the active partition. The VBR boots into an
+        interactive shell (mnos:\>) with commands like sysinfo, help, cls, reboot.
 
         CONTENTS
         --------
@@ -84,8 +84,9 @@ jobs:
              Start-VM -Name 'mini-os'
              vmconnect localhost 'mini-os'
 
-        5. You should see "In MBR", partition info, then four pages of system
-           information with "Press any key..." between each page.
+        5. You should see "In MBR", partition info, then the shell prompt:
+             mnos:\>
+           Type "help" for commands, or "sysinfo" for system information.
 
         PREREQUISITES
         -------------

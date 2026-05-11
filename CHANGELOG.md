@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.5] — 2026-05-11
+
+### Added
+- **Interactive command shell** — VBR now boots into a `mnos:\>` prompt with keyboard input
+- **Shell commands**: `sysinfo`, `help`, `cls`, `reboot`
+- **Input handling**: `readline` subroutine with backspace support, case-insensitive (auto-lowercase)
+- **String comparison**: `strcmp` subroutine for command dispatch
+- **`sysinfo` command** — the 4-page system info display is now invoked on demand (was automatic)
+
+### Changed
+- VBR clears screen on boot and displays `MNOS v0.2.5` banner before shell prompt
+- System info display moved from boot-time to `sysinfo` shell command
+- `reboot` uses warm-reboot (0x0472 flag + far jump to BIOS reset vector)
+- After `sysinfo` completes, returns to shell prompt (no longer halts)
+
 ## [0.2.2] — 2026-05-11
 
 ### Added
