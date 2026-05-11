@@ -7,8 +7,9 @@ architecture. The project is educational — designed so anyone can clone the re
 build a bootable disk image, and run it in a Hyper-V virtual machine with no prior
 OS-development experience.
 
-The current milestone is **M0: Boot and Print** — a Master Boot Record that displays
-`mini-os` on screen and halts the CPU.
+The current milestone is **M1: Partition Table & VBR** — the MBR reads and displays
+the partition table, then chain-loads the Volume Boot Record (VBR) from the active
+partition.
 
 ### Design Principles
 
@@ -48,17 +49,46 @@ The current milestone is **M0: Boot and Print** — a Master Boot Record that di
                                      └──────┬──────┘
                                             │
                                             v
-                                     ┌─────────────┐
-                                     │  Print       │
-                                     │  "mini-os"   │
-                                     │  (INT 10h)   │
-                                     └──────┬──────┘
+                                     ┌──────────────┐
+                                     │  Print banner │
+                                     │  "In MBR"     │
+                                     └──────┬───────┘
                                             │
                                             v
-                                     ┌─────────────┐
-                                     │  CLI + HLT   │
-                                     │  (halt CPU)  │
-                                     └─────────────┘
+                                     ┌──────────────────┐
+                                     │  Scan partition   │
+                                     │  table (4 entries)│
+                                     │  Print each entry │
+                                     └──────┬───────────┘
+                                            │
+                                            v
+                                     ┌──────────────────┐
+                                     │  Find active      │
+                                     │  partition (0x80)  │
+                                     └──────┬───────────┘
+                                            │
+                                   ┌────────┴────────┐
+                                   v                 v
+                            ┌────────────┐   ┌──────────────┐
+                            │ INT 13h    │   │ "No active   │
+                            │ AH=42h LBA │   │  partition"  │
+                            │ read VBR   │   │  → halt      │
+                            └─────┬──────┘   └──────────────┘
+                                  │
+                                  v
+                            ┌────────────┐
+                            │ Copy VBR   │
+                            │ to 0x7C00  │
+                            │ Jump to it │
+                            └─────┬──────┘
+                                  │
+                                  v
+                            ┌────────────┐
+                            │  vbr.asm   │
+                            │  "In boot  │
+                            │  sector"   │
+                            │  → halt    │
+                            └────────────┘
 ```
 
 ### 2.2 Memory Layout (at MBR execution)
@@ -67,7 +97,8 @@ The current milestone is **M0: Boot and Print** — a Master Boot Record that di
 |---------------|------------------------------------|
 | `0x0000:0x0000` – `0x0000:0x03FF` | Real-mode Interrupt Vector Table (IVT) |
 | `0x0000:0x0400` – `0x0000:0x04FF` | BIOS Data Area (BDA)               |
-| `0x0000:0x7C00` – `0x0000:0x7DFF` | **MBR code (512 bytes)**           |
+| `0x0000:0x7C00` – `0x0000:0x7DFF` | **MBR code (512 bytes)** → later overwritten by VBR |
+| `0x0000:0x7E00` – `0x0000:0x7FFF` | VBR load buffer (temporary, before copy to 0x7C00) |
 | `0x0000:0x7BFE` ↓                 | Stack (grows downward from 0x7C00) |
 
 ### 2.3 MBR Binary Format
@@ -76,12 +107,42 @@ The current milestone is **M0: Boot and Print** — a Master Boot Record that di
 Offset   Size   Description
 ───────  ─────  ──────────────────────────────
 0x000    446    Boot code (padded with 0x00)
-0x1BE     64    Partition table (unused — all zeroes)
+0x1BE     64    Partition table (4 × 16-byte entries)
 0x1FE      2    Boot signature: 0x55, 0xAA
 ```
 
-The MBR is a flat 512-byte binary. There is no file system, no partition table, and no
-second-stage loader at this time. NASM's `-f bin` output format produces a raw binary
+#### Partition Table Entry Format (16 bytes)
+
+| Offset | Size | Field           | Description                          |
+|--------|------|-----------------|--------------------------------------|
+| 0      | 1    | Status          | `0x80` = active/bootable, `0x00` = inactive |
+| 1      | 3    | CHS First       | CHS of first sector (`0xFEFFFF` for LBA) |
+| 4      | 1    | Type            | Partition type (`0x7F` = mini-os)    |
+| 5      | 3    | CHS Last        | CHS of last sector (`0xFEFFFF` for LBA) |
+| 8      | 4    | LBA Start       | Starting sector (little-endian)      |
+| 12     | 4    | Size            | Number of sectors (little-endian)    |
+
+The partition table is stamped into the MBR binary by `tools/create-disk.ps1` at build
+time. The MBR code scans all 4 entries, prints their info, and chain-loads the VBR
+from the first entry marked active (`0x80`).
+
+### 2.4 Volume Boot Record (VBR)
+
+The VBR (`src/boot/vbr.asm`) is a 512-byte binary loaded from the first sector of the
+active partition. The MBR reads it to `0x7E00` via `INT 13h AH=42h` (LBA extended read),
+then copies it to `0x7C00` and jumps to it. Currently the VBR prints
+`"In boot sector now"` followed by `"mini-os boot completed"` and halts.
+
+### 2.5 Disk Layout
+
+```
+Sector 0                → MBR (code + partition table + 0xAA55)
+Sectors 1–2047          → Gap (zeroed, reserved)
+Sector 2048             → VBR (active partition start)
+Sectors 2049–32767      → Partition data (zeroed, future use)
+```
+
+The MBR is a flat 512-byte binary. NASM's `-f bin` output format produces a raw binary
 with no headers — exactly what the BIOS expects.
 
 ---
@@ -157,9 +218,10 @@ versions.
 
 | Script | Purpose | Elevation |
 |--------|---------|-----------|
-| `tools/build.ps1` | Assemble MBR, create VHD | Not required |
+| `tools/build.ps1` | Assemble MBR + VBR, create disk image + VHD | Not required |
 | `tools/setup-vm.ps1` | Create/update Hyper-V VM | **Admin required** |
-| `tools/create-vhd.ps1` | Raw binary → VHD conversion | Not required (called by build.ps1) |
+| `tools/create-disk.ps1` | Stamp partition table + VBR into raw image | Not required (called by build.ps1) |
+| `tools/create-vhd.ps1` | Raw image → VHD conversion | Not required (called by build.ps1) |
 
 ### 4.3 No Other Dependencies
 
@@ -178,17 +240,25 @@ is PowerShell + NASM.
      ├─ 1. Locate or download NASM
      │
      ├─ 2. nasm -f bin -o build/boot/mbr.bin src/boot/mbr.asm
-     │      └─ Produces exactly 512 bytes (validated)
+     │      └─ 512 bytes: code + empty partition table + 0xAA55
      │
-     └─ 3. tools/create-vhd.ps1 build/boot/mbr.bin build/boot/mini-os.vhd --size 16
-            └─ Pads to 16 MB + appends 512-byte VHD footer
+     ├─ 3. nasm -f bin -o build/boot/vbr.bin src/boot/vbr.asm
+     │      └─ 512 bytes: VBR code + 0xAA55
+     │
+     ├─ 4. tools/create-disk.ps1 — build raw disk image
+     │      └─ Stamps partition table into MBR, writes VBR at partition LBA
+     │
+     └─ 5. tools/create-vhd.ps1 — wrap as VHD
+            └─ Appends 512-byte VHD footer
 ```
 
 ### 5.2 Build Outputs
 
 | File | Size | Description |
 |------|------|-------------|
-| `build/boot/mbr.bin` | 512 B | Raw MBR binary |
+| `build/boot/mbr.bin` | 512 B | Raw MBR binary (before partition table stamp) |
+| `build/boot/vbr.bin` | 512 B | Raw VBR binary |
+| `build/boot/mini-os.img` | 16 MB | Partitioned raw disk image |
 | `build/boot/mini-os.vhd` | 16 MB + 512 B | Bootable fixed VHD |
 
 ### 5.3 Clean Build
@@ -243,9 +313,11 @@ mini-os/
 │   └── DESIGN.md                 ← this document
 ├── src/
 │   └── boot/
-│       └── mbr.asm               16-bit x86 MBR bootloader
+│       ├── mbr.asm               MBR — partition table scan + VBR chain-load
+│       └── vbr.asm               VBR — loaded from active partition
 ├── tools/
 │   ├── build.ps1                 Build logic
+│   ├── create-disk.ps1           Raw disk image with partition table + VBR
 │   ├── create-vhd.bat            VHD tool — batch wrapper
 │   ├── create-vhd.ps1            Raw image → fixed VHD converter
 │   ├── setup-vm.ps1              Hyper-V VM create/update logic
@@ -253,7 +325,9 @@ mini-os/
 ├── build/                        Build output (gitignored)
 │   └── boot/
 │       ├── mbr.bin               Assembled MBR binary
-│       └── mini-os.vhd           Bootable disk image
+│       ├── vbr.bin               Assembled VBR binary
+│       ├── mini-os.img           Partitioned raw disk image
+│       └── mini-os.vhd           Bootable VHD
 ├── build.bat                     Build entry point
 ├── setup-vm.bat                  Hyper-V VM setup entry point
 ├── CHANGELOG.md
@@ -272,8 +346,8 @@ This document will be updated as the project evolves. Planned milestones:
 
 | Milestone | Description |
 |-----------|-------------|
-| **M0** ✅ | Boot MBR, print "mini-os", halt |
-| **M1** | Second-stage bootloader (load more sectors from disk) |
+| **M0** ✅ | Boot MBR, print banner, halt |
+| **M1** ✅ | Partition table scan, VBR chain-load from active partition |
 | **M2** | Switch to 32-bit protected mode |
 | **M3** | Basic kernel with screen output (direct VGA framebuffer) |
 | **M4** | Interrupt handling (keyboard input) |

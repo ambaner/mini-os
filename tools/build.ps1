@@ -1,11 +1,13 @@
 <#
 .SYNOPSIS
-    Build script for mini-os.  Assembles the MBR and creates a bootable VHD.
+    Build script for mini-os.  Assembles MBR + VBR, creates a partitioned VHD.
 
 .DESCRIPTION
     1. Downloads NASM if not found on PATH or in tools/nasm/.
-    2. Assembles src/boot/mbr.asm -> build/mbr.bin.
-    3. Creates build/boot/mini-os.vhd via tools/create-vhd.ps1.
+    2. Assembles src/boot/mbr.asm -> build/boot/mbr.bin
+    3. Assembles src/boot/vbr.asm -> build/boot/vbr.bin
+    4. Creates a partitioned raw disk image via tools/create-disk.ps1
+    5. Wraps the raw image as a VHD via tools/create-vhd.ps1
 
 .PARAMETER Clean
     Remove the build/ directory before building.
@@ -28,8 +30,12 @@ $Root       = Split-Path -Parent $ScriptDir
 $BuildDir   = Join-Path $Root 'build\boot'
 $ToolsDir   = $ScriptDir
 $NasmDir    = Join-Path $ToolsDir 'nasm'
-$SrcBoot    = Join-Path $Root 'src\boot\mbr.asm'
+$SrcBoot    = Join-Path $Root 'src\boot'
+$MbrAsm     = Join-Path $SrcBoot 'mbr.asm'
+$VbrAsm     = Join-Path $SrcBoot 'vbr.asm'
 $MbrBin     = Join-Path $BuildDir 'mbr.bin'
+$VbrBin     = Join-Path $BuildDir 'vbr.bin'
+$RawImg     = Join-Path $BuildDir 'mini-os.img'
 $VhdOut     = Join-Path $BuildDir 'mini-os.vhd'
 
 # ---------- helpers ---------------------------------------------------------
@@ -83,17 +89,31 @@ Write-Step "Using NASM: $nasm"
 
 # ---------- assemble MBR ----------------------------------------------------
 Write-Step 'Assembling MBR...'
-& $nasm -f bin -o $MbrBin $SrcBoot
-if ($LASTEXITCODE -ne 0) { throw 'NASM assembly failed.' }
+& $nasm -f bin -o $MbrBin $MbrAsm
+if ($LASTEXITCODE -ne 0) { throw 'NASM assembly of MBR failed.' }
 
 $binSize = (Get-Item $MbrBin).Length
 Write-Step "  mbr.bin: $binSize bytes"
 if ($binSize -ne 512) { Write-Warning "MBR is $binSize bytes (expected 512)." }
 
+# ---------- assemble VBR ----------------------------------------------------
+Write-Step 'Assembling VBR...'
+& $nasm -f bin -o $VbrBin $VbrAsm
+if ($LASTEXITCODE -ne 0) { throw 'NASM assembly of VBR failed.' }
+
+$vbrSize = (Get-Item $VbrBin).Length
+Write-Step "  vbr.bin: $vbrSize bytes"
+if ($vbrSize -ne 512) { Write-Warning "VBR is $vbrSize bytes (expected 512)." }
+
+# ---------- create partitioned disk image -----------------------------------
+Write-Step 'Creating partitioned disk image...'
+$DiskScript = Join-Path $ToolsDir 'create-disk.ps1'
+& $DiskScript -MbrPath $MbrBin -VbrPath $VbrBin -OutputPath $RawImg -SizeMB $DiskSizeMB
+
 # ---------- create VHD ------------------------------------------------------
 Write-Step 'Creating VHD...'
 $VhdScript = Join-Path $ToolsDir 'create-vhd.ps1'
-& $VhdScript -InputPath $MbrBin -OutputPath $VhdOut -SizeMB $DiskSizeMB
+& $VhdScript -InputPath $RawImg -OutputPath $VhdOut -SizeMB $DiskSizeMB
 
 # ---------- done ------------------------------------------------------------
 Write-Host ''
@@ -101,8 +121,7 @@ Write-Step '=== Build complete ==='
 Write-Step "VHD: $VhdOut"
 Write-Host ''
 Write-Host 'To test in Hyper-V:' -ForegroundColor Yellow
-Write-Host "  1. Open Hyper-V Manager"
-Write-Host "  2. Create a new Generation 1 VM"
-Write-Host "  3. Attach $VhdOut as the IDE hard drive"
-Write-Host "  4. Boot the VM — you should see 'mini-os' printed on screen"
+Write-Host "  build.bat           — build the OS"
+Write-Host "  setup-vm.bat        — create/update the VM"
+Write-Host "  Start-VM 'mini-os'  — boot it"
 Write-Host ''

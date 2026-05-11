@@ -1,7 +1,8 @@
 # mini-os
 
 A minimalistic operating system, built from scratch.
-Currently: a bootable MBR that prints **`mini-os`** and halts.
+Currently: MBR reads the partition table, chain-loads the VBR from the active partition,
+and the VBR prints **`In boot sector now`** followed by **`mini-os boot completed`** before halting.
 
 ![mini-os booting in Hyper-V](doc/booted.gif)
 
@@ -23,7 +24,7 @@ build.bat
 The build script will:
 1. Download NASM into `tools/nasm/` if not already installed
 2. Assemble the MBR bootloader
-3. Create `build/boot/mini-os.vhd` (16 MB fixed VHD)
+3. Create `build/boot/mini-os.vhd` (16 MB fixed VHD with partition table)
 
 ## Running in Hyper-V
 
@@ -37,6 +38,8 @@ setup-vm.bat
 ```
 
 The script will prompt for a VM name and location (defaults are fine), then create a Gen 1 / 32 MB RAM VM with no network adapter. On repeat runs it stops the VM, swaps in the latest VHD, and leaves it ready to start.
+
+You should see `In MBR`, partition table info, then `In boot sector now` and `mini-os boot completed`.
 
 ```powershell
 Start-VM -Name 'mini-os'           # start the VM
@@ -56,9 +59,11 @@ mini-os/
 │   └── DESIGN.md             # Architecture & design document
 ├── src/
 │   └── boot/
-│       └── mbr.asm           # Master Boot Record (16-bit x86 assembly)
+│       ├── mbr.asm           # MBR — partition table scan + VBR chain-load
+│       └── vbr.asm           # VBR — loaded from active partition
 ├── tools/
 │   ├── build.ps1             # Build logic (called by build.bat)
+│   ├── create-disk.ps1       # Partitioned raw disk image creator
 │   ├── create-vhd.bat        # VHD tool — batch wrapper
 │   ├── create-vhd.ps1        # Raw image → VHD converter (pure PowerShell)
 │   ├── setup-vm.ps1          # Hyper-V VM create/update logic
@@ -66,6 +71,8 @@ mini-os/
 ├── build/                    # Build output (gitignored)
 │   └── boot/
 │       ├── mbr.bin
+│       ├── vbr.bin
+│       ├── mini-os.img
 │       └── mini-os.vhd
 ├── build.bat                 # Build entry point
 ├── setup-vm.bat              # Hyper-V VM setup entry point

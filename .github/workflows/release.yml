@@ -34,6 +34,7 @@ jobs:
 
         # Copy artifacts
         Copy-Item "build\boot\mbr.bin"       "$stagingDir\distro\mbr\"
+        Copy-Item "build\boot\vbr.bin"       "$stagingDir\distro\mbr\"
         Copy-Item "build\boot\mini-os.vhd"   "$stagingDir\vhd\"
         Copy-Item "tools\setup-vm.ps1"        "$stagingDir\setup-vm\"
         Copy-Item "tools\create-vhd.ps1"      "$stagingDir\tools\"
@@ -56,11 +57,13 @@ jobs:
         mini-os $tag
         ============
 
-        A minimalistic bootable OS that prints "mini-os" and halts.
+        A minimalistic bootable OS. MBR reads the partition table, loads the
+        VBR from the active partition. The VBR prints "In boot sector now" and "mini-os boot completed".
 
         CONTENTS
         --------
         distro\mbr\mbr.bin    Raw 512-byte MBR boot sector
+        distro\mbr\vbr.bin    Raw 512-byte Volume Boot Record
         vhd\mini-os.vhd       16 MB fixed VHD — ready to boot in Hyper-V
         setup-vm\             Scripts to create/update a Hyper-V VM
         tools\                VHD creation tools (if you rebuild from source)
@@ -80,7 +83,7 @@ jobs:
              Start-VM -Name 'mini-os'
              vmconnect localhost 'mini-os'
 
-        5. You should see "mini-os" printed on screen.
+        5. You should see "In MBR", partition info, "In boot sector now", and "mini-os boot completed".
 
         PREREQUISITES
         -------------
