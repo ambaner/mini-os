@@ -53,12 +53,17 @@ if ($mbrBytes[510] -ne 0x55 -or $mbrBytes[511] -ne 0xAA) {
 }
 
 $vbrBytes = [System.IO.File]::ReadAllBytes((Resolve-Path $VbrPath))
-if ($vbrBytes.Length -ne 512) {
-    throw "VBR must be exactly 512 bytes (got $($vbrBytes.Length))."
+if (($vbrBytes.Length % 512) -ne 0) {
+    throw "VBR must be a multiple of 512 bytes (got $($vbrBytes.Length))."
+}
+if ($vbrBytes.Length -lt 512) {
+    throw "VBR must be at least 512 bytes (got $($vbrBytes.Length))."
 }
 if ($vbrBytes[510] -ne 0x55 -or $vbrBytes[511] -ne 0xAA) {
-    throw "VBR is missing boot signature (0x55AA)."
+    throw "VBR is missing boot signature (0x55AA) at offset 510."
 }
+$vbrSectors = $vbrBytes.Length / 512
+Write-Step "VBR: $($vbrBytes.Length) bytes ($vbrSectors sectors)"
 
 $diskSize = [long]$SizeMB * 1024 * 1024
 $totalSectors = [int]($diskSize / 512)
@@ -128,11 +133,11 @@ if ($gapBytes -gt 0) {
     }
 }
 
-# Write VBR at partition start
-$fs.Write($vbrBytes, 0, 512)
+# Write VBR (all sectors) at partition start
+$fs.Write($vbrBytes, 0, $vbrBytes.Length)
 
 # Zero-fill the rest of the disk
-$remainingBytes = $diskSize - (($PartitionStartLBA + 1) * 512)
+$remainingBytes = $diskSize - (($PartitionStartLBA * 512) + $vbrBytes.Length)
 if ($remainingBytes -gt 0) {
     $zeroBuf = [byte[]]::new([math]::Min($remainingBytes, 65536))
     $remaining = $remainingBytes
@@ -148,4 +153,4 @@ $fs.Close()
 $fileSize = (Get-Item $OutputPath).Length
 Write-Step "Raw image: $OutputPath ($fileSize bytes)"
 Write-Step "  Sector 0       : MBR (with partition table)"
-Write-Step "  Sector $PartitionStartLBA  : VBR (active partition)"
+Write-Step "  Sector $PartitionStartLBA  : VBR ($vbrSectors sectors, $($vbrBytes.Length) bytes)"

@@ -102,8 +102,8 @@ Write-Step 'Assembling VBR...'
 if ($LASTEXITCODE -ne 0) { throw 'NASM assembly of VBR failed.' }
 
 $vbrSize = (Get-Item $VbrBin).Length
-Write-Step "  vbr.bin: $vbrSize bytes"
-if ($vbrSize -ne 512) { Write-Warning "VBR is $vbrSize bytes (expected 512)." }
+Write-Step "  vbr.bin: $vbrSize bytes ($([math]::Ceiling($vbrSize / 512)) sectors)"
+if (($vbrSize % 512) -ne 0) { Write-Warning "VBR size is not a multiple of 512 bytes." }
 
 # ---------- create partitioned disk image -----------------------------------
 Write-Step 'Creating partitioned disk image...'

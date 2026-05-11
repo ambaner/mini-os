@@ -1,8 +1,9 @@
 # mini-os
 
 A minimalistic operating system, built from scratch.
-Currently: MBR reads the partition table, chain-loads the VBR from the active partition,
-and the VBR prints **`In boot sector now`** followed by **`mini-os boot completed`** before halting.
+Currently: MBR reads the partition table, chain-loads a multi-sector VBR from the active
+partition, and the VBR displays four pages of system information (memory, BDA, video/disk,
+IVT) before halting.
 
 ![mini-os booting in Hyper-V](doc/booted.gif)
 
@@ -23,7 +24,7 @@ build.bat
 
 The build script will:
 1. Download NASM into `tools/nasm/` if not already installed
-2. Assemble the MBR bootloader
+2. Assemble the MBR and VBR (16 sectors / 8 KB)
 3. Create `build/boot/mini-os.vhd` (16 MB fixed VHD with partition table)
 
 ## Running in Hyper-V
@@ -39,7 +40,9 @@ setup-vm.bat
 
 The script will prompt for a VM name and location (defaults are fine), then create a Gen 1 / 32 MB RAM VM with no network adapter. On repeat runs it stops the VM, swaps in the latest VHD, and leaves it ready to start.
 
-You should see `In MBR`, partition table info, then `In boot sector now` and `mini-os boot completed`.
+You should see the MBR banner, partition table info, then four pages of system information
+(memory layout, BIOS data area, video & disk info, interrupt vector table) with
+"Press any key..." between each page.
 
 ```powershell
 Start-VM -Name 'mini-os'           # start the VM
@@ -60,7 +63,7 @@ mini-os/
 ├── src/
 │   └── boot/
 │       ├── mbr.asm           # MBR — partition table scan + VBR chain-load
-│       └── vbr.asm           # VBR — loaded from active partition
+│       └── vbr.asm           # VBR — 4-page system info display (16 sectors)
 ├── tools/
 │   ├── build.ps1             # Build logic (called by build.bat)
 │   ├── create-disk.ps1       # Partitioned raw disk image creator

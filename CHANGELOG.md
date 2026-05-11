@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.2] — 2026-05-11
+
+### Added
+- **4-page system information display** — VBR now queries BIOS/hardware and displays:
+  - Page 1: CPU & Memory (INT 12h, INT 15h AH=88h, E820 memory map)
+  - Page 2: BIOS Data Area (COM/LPT ports, equipment word, video info from BDA)
+  - Page 3: Video & Disk (video mode, cursor, video memory base, boot drive geometry)
+  - Page 4: IVT Sample (first 8 interrupt vectors with descriptions)
+- **VBR subroutines**: `print_hex16`, `print_dec16`, `wait_key`, `puthex8` — reusable utility functions
+- **Inter-page navigation**: "Press any key..." between pages with screen clear
+
+### Changed
+- VBR now uses full 16-sector (8 KB) boot area — code+data spans sectors 0–1, rest zero-padded
+- VBR sector 0 contains header + trampoline + boot signature; code starts in sector 1
+- `create-disk.ps1` writes full multi-sector VBR binary (was only writing 512 bytes)
+- CI verifies VBR binary size matches header-declared sector count
+- Fixed em dash (U+2014) in VBR banner — replaced with ASCII hyphen for correct BIOS rendering
+
 ## [0.2.1] — 2026-05-11
 
 ### Added

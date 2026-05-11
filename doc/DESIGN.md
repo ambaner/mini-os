@@ -7,9 +7,9 @@ architecture. The project is educational — designed so anyone can clone the re
 build a bootable disk image, and run it in a Hyper-V virtual machine with no prior
 OS-development experience.
 
-The current milestone is **M1: Partition Table & VBR** — the MBR reads and displays
-the partition table, then chain-loads the Volume Boot Record (VBR) from the active
-partition.
+The current milestone is **M1+ : System Information Display** — the MBR reads and displays
+the partition table, chain-loads the multi-sector VBR, and the VBR displays four pages of
+system information (memory, BDA, video/disk, IVT).
 
 ### Design Principles
 
@@ -85,8 +85,9 @@ partition.
                                   v
                             ┌────────────┐
                             │  vbr.asm   │
-                            │  "In boot  │
-                            │  sector"   │
+                            │  System    │
+                            │  Info (4   │
+                            │  pages)    │
                             │  → halt    │
                             └────────────┘
 ```
@@ -145,12 +146,34 @@ The MBR performs a two-phase load:
 2. **Phase 2** — Re-read all N sectors (from the header) to `0x7E00`.
 3. Copy N sectors from `0x7E00` to `0x7C00` and jump.
 
-Currently the VBR code fits in one sector; the remaining 15 are reserved for
-future features (protected mode switch, kernel loader, etc.). As the code
-grows, the VBR binary simply gets larger — no build changes needed.
+#### VBR Sector Layout
 
-Currently the VBR prints `"In boot sector now"` followed by
-`"mini-os boot completed"` and halts.
+Sector 0 contains the header, a near-jump trampoline, and the boot signature
+(`0xAA55`) at offset 510. The actual VBR code begins in sector 1 (offset 512),
+since the code + data exceed 510 bytes.
+
+#### System Information Display
+
+The VBR displays four pages of system information, with "Press any key..."
+between each page and a screen clear before each new page:
+
+| Page | Title | Information |
+|------|-------|-------------|
+| 1 | CPU & Memory | INT 12h conventional memory, INT 15h AH=88h extended memory, E820 memory map |
+| 2 | BIOS Data Area | COM/LPT port addresses, equipment word, video mode, columns, page size |
+| 3 | Video & Disk | Current video mode, cursor position, video memory base, boot drive geometry |
+| 4 | IVT Sample | First 8 interrupt vectors (INT 0–7) with descriptions |
+
+#### VBR Subroutines
+
+| Routine | Description |
+|---------|-------------|
+| `puts` | Print NUL-terminated string via INT 10h AH=0Eh |
+| `putc` | Print single character |
+| `puthex8` | Print AL as two hex digits |
+| `print_hex16` | Print AX as four hex digits |
+| `print_dec16` | Print AX as unsigned decimal |
+| `wait_key` | Print prompt, wait for keypress, clear screen |
 
 ### 2.5 Disk Layout
 
@@ -263,7 +286,7 @@ is PowerShell + NASM.
      │      └─ 512 bytes: code + empty partition table + 0xAA55
      │
      ├─ 3. nasm -f bin -o build/boot/vbr.bin src/boot/vbr.asm
-     │      └─ 512 bytes: VBR code + 0xAA55
+     │      └─ 8192 bytes (16 sectors): header + system info + 0xAA55
      │
      ├─ 4. tools/create-disk.ps1 — build raw disk image
      │      └─ Stamps partition table into MBR, writes VBR at partition LBA
@@ -277,7 +300,7 @@ is PowerShell + NASM.
 | File | Size | Description |
 |------|------|-------------|
 | `build/boot/mbr.bin` | 512 B | Raw MBR binary (before partition table stamp) |
-| `build/boot/vbr.bin` | 512 B | Raw VBR binary |
+| `build/boot/vbr.bin` | 8 KB (16 × 512) | Raw VBR binary (multi-sector) |
 | `build/boot/mini-os.img` | 16 MB | Partitioned raw disk image |
 | `build/boot/mini-os.vhd` | 16 MB + 512 B | Bootable fixed VHD |
 
@@ -334,7 +357,7 @@ mini-os/
 ├── src/
 │   └── boot/
 │       ├── mbr.asm               MBR — partition table scan + VBR chain-load
-│       └── vbr.asm               VBR — loaded from active partition
+│       └── vbr.asm               VBR — 4-page system info display (16 sectors)
 ├── tools/
 │   ├── build.ps1                 Build logic
 │   ├── create-disk.ps1           Raw disk image with partition table + VBR
@@ -368,6 +391,7 @@ This document will be updated as the project evolves. Planned milestones:
 |-----------|-------------|
 | **M0** ✅ | Boot MBR, print banner, halt |
 | **M1** ✅ | Partition table scan, VBR chain-load, multi-sector boot area (16 sectors / 8 KB) |
+| **M1+** ✅ | VBR system information display (4 pages: memory, BDA, video/disk, IVT) |
 | **M2** | Switch to 32-bit protected mode |
 | **M3** | Basic kernel with screen output (direct VGA framebuffer) |
 | **M4** | Interrupt handling (keyboard input) |
