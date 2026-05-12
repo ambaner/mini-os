@@ -85,6 +85,13 @@ interactive command shell with a `mnos:\>` prompt.  Commands include `sysinfo`,
                                   │
                                   v
                             ┌────────────┐
+                            │ Enable A20 │
+                            │ (3 methods │
+                            │ w/fallback)│
+                            └─────┬──────┘
+                                  │
+                                  v
+                            ┌────────────┐
                             │  vbr.asm   │
                             │  Shell     │
                             │  mnos:\>   │
@@ -170,9 +177,9 @@ with no headers — exactly what the BIOS expects.
 
 ## 3. Interactive Shell
 
-After the MBR chain-loads the VBR, the VBR clears the screen, displays a version
-banner (`MNOS v0.2.7`), and enters an interactive command loop with a `mnos:\>`
-prompt.
+After the MBR chain-loads the VBR, the VBR enables the A20 gate (see §3.7),
+clears the screen, displays a version banner (`MNOS v0.3.0`), and enters an
+interactive command loop with a `mnos:\>` prompt.
 
 ### 3.1 Shell Architecture
 
@@ -230,8 +237,8 @@ Displays detailed memory information on a single page:
 
 - **Conventional memory** — INT 12h (typically 640 KB)
 - **Extended memory** — INT 15h AH=88h (memory above 1 MB)
-- **A20 gate status** — Tests the address line by writing to 0x0000:0x0500 and
-  0xFFFF:0x0510; if they alias, A20 is disabled (addresses wrap at 1 MB)
+- **A20 gate status** — Shows the boot-time enablement result and performs a
+  live wrap-around re-test to confirm A20 is still active
 - **Real-mode memory layout** — Static map showing IVT, BDA, free area, boot
   area, video RAM, ROM area, and extended area
 - **E820 memory map** — Full BIOS-reported memory map with base, length, and type
@@ -253,16 +260,30 @@ firmware) enable A20 by default during POST.**  The A20 gate is essentially a
 legacy concern.  You would only see "Disabled" on vintage hardware or emulators
 configured for strict 8086 compatibility.
 
-When we later switch to protected mode, we will explicitly enable A20 as a
-safety measure (in case any environment leaves it off), using the keyboard
-controller method (port 0x64/0x60) or the fast A20 method (port 0x92).
+### 3.7 A20 Gate Enablement
+
+As of v0.3.0, the VBR explicitly enables the A20 line at boot before entering
+the shell.  This ensures access to memory above 1 MB regardless of the platform.
+Three methods are attempted in order, with a wrap-around verification after each:
+
+| Method | Mechanism | Notes |
+|--------|-----------|-------|
+| 1. BIOS | INT 15h AX=2401h | Cleanest, supported by modern BIOSes |
+| 2. Keyboard controller | 8042 ports 0x64/0x60, set bit 1 of output port | Classic AT method, most compatible |
+| 3. Fast A20 | Port 0x92, set bit 1 (clear bit 0 to avoid reset) | Quick but not available on all hardware |
+
+The `check_a20` subroutine performs the wrap-around test: it writes different
+values to 0x0000:0x0500 and 0xFFFF:0x0510, then checks if they alias.  The result
+is stored in `a20_status` (1 = enabled, 0 = failed) and displayed by the `mem`
+command.  If all three methods fail, the shell still runs (within the low 1 MB)
+but prints a warning.
 
 ### 3.5 `ver` Command
 
 Displays static version and build information:
 
 ```
-  MNOS v0.2.7
+  MNOS v0.3.0
   Arch:      x86 real mode (16-bit)
   Assembler: NASM
   Platform:  Hyper-V Gen 1
@@ -271,10 +292,11 @@ Displays static version and build information:
   Source:    github.com/ambaner/mini-os
 ```
 
-### 3.6 VBR Subroutines
+### 3.8 VBR Subroutines
 
 | Routine | Description |
 |---------|-------------|
+| `check_a20` | Test A20 status via wrap-around; ZF=0 if enabled, ZF=1 if disabled |
 | `readline` | Read line of input into buffer (backspace, auto-lowercase) |
 | `strcmp` | Compare two NUL-terminated strings, set ZF if equal |
 | `puts` | Print NUL-terminated string via INT 10h AH=0Eh |
@@ -489,7 +511,8 @@ This document will be updated as the project evolves. Planned milestones:
 | **M1** ✅ | Partition table scan, VBR chain-load, multi-sector boot area (16 sectors / 8 KB) |
 | **M1+** ✅ | VBR system information display (5 pages: CPU, memory, BDA, video/disk, IVT) |
 | **M2** ✅ | Interactive shell (`mnos:\>`) with command dispatch, `sysinfo` as first command |
-| **M3** | A20 gate enable + kernel binary load from disk |
+| **M3** ✅ | A20 gate enablement (BIOS / 8042 / Fast A20 with fallbacks) |
+| **M4** | Kernel binary load from disk |
 | **M4** | Switch to 32-bit protected mode |
 | **M5** | Basic kernel with screen output (direct VGA framebuffer) |
 | **M6** | Simple memory manager |

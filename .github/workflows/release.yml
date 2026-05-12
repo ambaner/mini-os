@@ -60,6 +60,7 @@ jobs:
         A minimalistic bootable OS. MBR reads the partition table, loads the
         multi-sector VBR from the active partition. The VBR boots into an
         interactive shell (mnos:\>) with commands like sysinfo, mem, ver, help, cls, reboot.
+        The VBR enables the A20 gate at boot for full memory access above 1 MB.
 
         CONTENTS
         --------

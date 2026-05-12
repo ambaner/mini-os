@@ -60,6 +60,145 @@ vbr_code:
     mov [boot_drive], dl            ; Save boot drive before we clobber DL
 
 ; =============================================================================
+; A20 GATE ENABLEMENT
+;
+; Enable the A20 address line so the CPU can access memory above 1 MB.
+; Without A20, addresses wrap at the 1 MB boundary (8086 compatibility).
+;
+; We try three methods in order of preference:
+;   1. BIOS INT 15h AX=2401h  (cleanest, most portable)
+;   2. Keyboard controller     (classic AT method, port 0x64/0x60)
+;   3. Fast A20 via port 0x92  (quick but not universal)
+;
+; After each attempt we verify A20 is actually enabled.  If all three
+; methods fail, we record the failure but continue (shell still works
+; in the low 1 MB).
+; =============================================================================
+enable_a20:
+    ; --- Check if A20 is already enabled -------------------------------------
+    call check_a20
+    jnz .a20_ok                     ; Already enabled, skip everything
+
+    ; --- Method 1: BIOS INT 15h AX=2401h ------------------------------------
+    mov ax, 0x2401
+    int 0x15
+    call check_a20
+    jnz .a20_ok
+
+    ; --- Method 2: Keyboard controller (8042) --------------------------------
+    ; Send "write output port" command to the 8042, set the A20 bit.
+    call .a20_wait_cmd              ; Wait for input buffer empty
+    mov al, 0xAD                    ; Disable keyboard
+    out 0x64, al
+
+    call .a20_wait_cmd
+    mov al, 0xD0                    ; Command: read output port
+    out 0x64, al
+
+    call .a20_wait_data             ; Wait for data to be available
+    in al, 0x60                     ; Read current output port value
+    push ax                         ; Save it
+
+    call .a20_wait_cmd
+    mov al, 0xD1                    ; Command: write output port
+    out 0x64, al
+
+    call .a20_wait_cmd
+    pop ax
+    or al, 0x02                     ; Set A20 bit (bit 1)
+    out 0x60, al                    ; Write new output port value
+
+    call .a20_wait_cmd
+    mov al, 0xAE                    ; Re-enable keyboard
+    out 0x64, al
+    call .a20_wait_cmd
+
+    call check_a20
+    jnz .a20_ok
+
+    ; --- Method 3: Fast A20 (port 0x92) -------------------------------------
+    in al, 0x92
+    or al, 0x02                     ; Set A20 bit (bit 1)
+    and al, 0xFE                    ; Clear bit 0 (avoid system reset!)
+    out 0x92, al
+
+    call check_a20
+    jnz .a20_ok
+
+    ; --- All methods failed --------------------------------------------------
+    mov byte [a20_status], 0        ; Record failure
+    jmp shell_init
+
+.a20_ok:
+    mov byte [a20_status], 1        ; Record success
+    jmp shell_init
+
+; --- A20 helper: wait for 8042 input buffer to be empty ----------------------
+.a20_wait_cmd:
+    in al, 0x64
+    test al, 0x02                   ; Bit 1 = input buffer full
+    jnz .a20_wait_cmd
+    ret
+
+; --- A20 helper: wait for 8042 output buffer to have data --------------------
+.a20_wait_data:
+    in al, 0x64
+    test al, 0x01                   ; Bit 0 = output buffer has data
+    jz .a20_wait_data
+    ret
+
+; ---------------------------------------------------------------------------
+; check_a20 - Test if the A20 line is enabled (wrap-around method).
+;
+;   Writes different values to 0x0000:0x0500 and 0xFFFF:0x0510.
+;   If A20 is disabled these map to the same physical byte (aliased).
+;   Saves and restores the original memory contents.
+;
+;   Output:  ZF=0 (NZ) if A20 enabled, ZF=1 (Z) if disabled
+;   Clobbers: AX, CL
+; ---------------------------------------------------------------------------
+check_a20:
+    push ds
+    push es
+
+    xor ax, ax
+    mov ds, ax                      ; DS = 0x0000
+    mov ax, 0xFFFF
+    mov es, ax                      ; ES = 0xFFFF
+
+    ; Save original bytes at both test locations
+    mov al, [ds:0x0500]
+    push ax
+    mov al, [es:0x0510]
+    push ax
+
+    ; Write different test patterns
+    mov byte [es:0x0510], 0x13
+    mov byte [ds:0x0500], 0x37
+
+    ; Check: did writing to 0x0500 also change 0x0510?
+    ; If yes → addresses wrapped → A20 is disabled
+    cmp byte [es:0x0510], 0x37
+    je .chk_a20_off
+    mov cl, 1                       ; Different → A20 is enabled
+    jmp .chk_a20_restore
+.chk_a20_off:
+    mov cl, 0                       ; Same → A20 is disabled (wrapped)
+
+.chk_a20_restore:
+    ; Restore original bytes (reverse order of push)
+    pop ax
+    mov [es:0x0510], al
+    pop ax
+    mov [ds:0x0500], al
+
+    pop es
+    pop ds
+
+    test cl, cl                     ; Set ZF: NZ if enabled, Z if disabled
+    ret
+
+; =============================================================================
 ; SHELL - Main command loop
 ;
 ; 1. Clear screen
@@ -212,60 +351,36 @@ cmd_mem:
 
 .mem_a20:
     ; --- A20 gate status -----------------------------------------------------
-    ; Test whether the A20 address line is enabled by checking if memory
-    ; wraps around at the 1 MB boundary.
-    ;
-    ; How it works:
-    ;   Linear address 0x0000:0x0500 and 0xFFFF:0x0510 map to:
-    ;     0x00000500  and  0x00100500 (if A20 enabled)
-    ;     0x00000500  and  0x00000500 (if A20 disabled — wraps around)
-    ;
-    ;   We save the byte at [0x0000:0x0500], write a test value to
-    ;   [0xFFFF:0x0510], and check if [0x0000:0x0500] changed.
-    ;   If it changed, A20 is disabled (addresses wrap).
+    ; The VBR enables A20 at boot using up to three methods (BIOS, 8042,
+    ; Fast A20).  The result is stored in a20_status.  We also re-verify
+    ; the current state with a live wrap-around test.
     mov si, msg_a20
     call puts
 
-    push ds
-    push es
-
-    xor ax, ax
-    mov ds, ax                      ; DS = 0x0000
-    mov ax, 0xFFFF
-    mov es, ax                      ; ES = 0xFFFF
-
-    ; Save original bytes at both locations
-    mov al, [ds:0x0500]
-    push ax                         ; Save [0x0000:0x0500]
-    mov al, [es:0x0510]
-    push ax                         ; Save [0xFFFF:0x0510]
-
-    ; Write test pattern
-    mov byte [es:0x0510], 0x13      ; Write to 0xFFFF:0x0510
-    mov byte [ds:0x0500], 0x37      ; Write different value to 0x0000:0x0500
-
-    ; If A20 is disabled, writing to 0x0000:0x0500 also changed 0xFFFF:0x0510
-    cmp byte [es:0x0510], 0x37
-    je .a20_disabled
-
-    ; A20 is enabled (the two addresses are independent)
-    mov si, msg_a20_on
-    jmp .a20_restore
-
-.a20_disabled:
+    cmp byte [a20_status], 1
+    je .a20_show_on
     mov si, msg_a20_off
-
-.a20_restore:
-    ; Restore original bytes
-    pop ax
-    mov [es:0x0510], al
-    pop ax
-    mov [ds:0x0500], al
-
-    pop es
-    pop ds
-
     call puts
+    jmp .a20_verify
+
+.a20_show_on:
+    mov si, msg_a20_on
+    call puts
+
+.a20_verify:
+    ; Live verification — re-test wrap-around
+    mov si, msg_a20_live
+    call puts
+    call check_a20
+    jnz .a20_live_on
+    mov si, msg_a20_off_short
+    call puts
+    jmp .a20_section_done
+.a20_live_on:
+    mov si, msg_a20_on_short
+    call puts
+
+.a20_section_done:
 
     ; --- Real-mode memory layout ---------------------------------------------
     mov si, msg_layout_hdr
@@ -1242,7 +1357,7 @@ wait_key:
 
 ; --- Shell strings -----------------------------------------------------------
 msg_banner      db 13, 10
-                db '  MNOS v0.2.7', 13, 10
+                db '  MNOS v0.3.0', 13, 10
                 db 13, 10, 0
 
 msg_prompt      db 'mnos:\>', 0
@@ -1266,7 +1381,7 @@ str_cls         db 'cls', 0
 str_reboot      db 'reboot', 0
 
 ; --- ver command strings -----------------------------------------------------
-msg_ver_text    db '  MNOS v0.2.7', 13, 10
+msg_ver_text    db '  MNOS v0.3.0', 13, 10
                 db '  Arch:      x86 real mode (16-bit)', 13, 10
                 db '  Assembler: NASM', 13, 10
                 db '  Platform:  Hyper-V Gen 1', 13, 10
@@ -1344,8 +1459,11 @@ msg_sysinfo_done db 13, 10, '  System info complete.', 13, 10, 0
 msg_mem_hdr     db 13, 10, '--- Memory Information ---', 13, 10, 0
 
 msg_a20         db '  A20 gate:     ', 0
-msg_a20_on      db 'Enabled (normal for Hyper-V)', 13, 10, 0
-msg_a20_off     db 'Disabled (addresses wrap at 1 MB)', 13, 10, 0
+msg_a20_on      db 'Enabled (set by VBR at boot)', 13, 10, 0
+msg_a20_off     db 'FAILED - all 3 methods failed', 13, 10, 0
+msg_a20_live    db '  A20 verify:   ', 0
+msg_a20_on_short  db 'OK', 13, 10, 0
+msg_a20_off_short db 'FAIL (wrap detected)', 13, 10, 0
 
 msg_layout_hdr  db 13, 10, '  Real-mode memory layout:', 13, 10, 0
 msg_layout      db '    0x00000-0x003FF  1 KB    IVT (Interrupt Vector Table)', 13, 10
@@ -1400,6 +1518,7 @@ msg_anykey      db 13, 10, '  Press any key...', 0
 ; RUNTIME DATA - Variables filled at runtime
 ; =============================================================================
 boot_drive      db 0                ; Saved boot drive number (from MBR via DL)
+a20_status      db 0                ; A20 enablement result (1=enabled, 0=failed)
 
 ; Command input buffer (32 bytes: 31 chars + NUL)
 cmd_buf         times 32 db 0

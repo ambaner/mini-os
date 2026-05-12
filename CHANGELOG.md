@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.3.0] — 2026-05-11
+
+### Added
+- **A20 gate enablement** — VBR now enables the A20 address line at boot, unlocking
+  access to memory above 1 MB.  Uses three fallback methods:
+  1. BIOS INT 15h AX=2401h (cleanest, most portable)
+  2. Keyboard controller 8042 (classic AT method, ports 0x64/0x60)
+  3. Fast A20 via port 0x92 (quick but not universal)
+- **`check_a20` subroutine** — reusable wrap-around A20 verification used at boot
+  and by the `mem` command
+- **`mem` command A20 verification** — now shows boot-time result and performs a
+  live re-test to confirm A20 is still active
+
+### Changed
+- Version banner updated to v0.3.0
+
 ## [0.2.7] — 2026-05-11
 
 ### Added

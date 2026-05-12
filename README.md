@@ -1,9 +1,9 @@
 # mini-os
 
-A minimalistic operating system, built from scratch — currently at **v0.2.7**.
-MBR reads the partition table, chain-loads a multi-sector VBR, and the VBR
-drops into an interactive shell (`mnos:\>`) with commands for system info,
-CPU details, memory diagnostics, version info, and more.
+A minimalistic operating system, built from scratch — currently at **v0.3.0**.
+MBR reads the partition table, chain-loads a multi-sector VBR which enables the
+A20 gate for full memory access, then drops into an interactive shell (`mnos:\>`)
+with commands for system info, CPU details, memory diagnostics, version info, and more.
 
 ![mini-os booting in Hyper-V](doc/booted.gif)
 
@@ -43,7 +43,7 @@ The script will prompt for a VM name and location (defaults are fine), then crea
 You should see the MBR banner and partition table info, then the shell:
 
 ```
-  MNOS v0.2.7
+  MNOS v0.3.0
 
 mnos:\>
 ```
@@ -119,6 +119,7 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.2.5` | **M2 — Interactive shell** | `mnos:\>` prompt with `sysinfo`, `help`, `cls`, `reboot` commands |
 | `v0.2.6` | **`mem` command** | Detailed memory info: conventional/extended RAM, A20 gate status, memory layout, E820 map |
 | `v0.2.7` | **`ver` + CPU/EDD sysinfo** | Version command, CPUID details page, EDD disk info, sysinfo now 5 pages |
+| `v0.3.0` | **A20 gate enablement** | VBR enables A20 at boot (BIOS/8042/Fast A20 fallbacks), full memory access above 1 MB |
 
 ```cmd
 git checkout v0.1.0      # see the project at any prior milestone
