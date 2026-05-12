@@ -7,10 +7,10 @@ architecture. The project is educational — designed so anyone can clone the re
 build a bootable disk image, and run it in a Hyper-V virtual machine with no prior
 OS-development experience.
 
-The current milestone is **M2: Interactive Shell** — the MBR reads and displays
-the partition table, chain-loads the multi-sector VBR, and the VBR drops into an
-interactive command shell with a `mnos:\>` prompt.  Commands include `sysinfo`,
-`mem`, `help`, `cls`, and `reboot`.
+The current milestone is **M4: Three-Stage Boot Chain** — the MBR chain-loads a
+minimal VBR, which loads a stage-2 loader (LOADER.BIN) that enables A20, which
+loads an interactive shell (SHELL.BIN) with commands for system info, CPU details,
+memory diagnostics, and version info.
 
 ### Design Principles
 
@@ -85,30 +85,53 @@ interactive command shell with a `mnos:\>` prompt.  Commands include `sysinfo`,
                                   │
                                   v
                             ┌────────────┐
-                            │ Enable A20 │
-                            │ (3 methods │
-                            │ w/fallback)│
+                            │  vbr.asm   │
+                            │ Load LOADER│
+                            │ from LBA+4 │
+                            │ to 0x0800  │
                             └─────┬──────┘
                                   │
                                   v
                             ┌────────────┐
-                            │  vbr.asm   │
-                            │  Shell     │
+                            │ LOADER.BIN │
+                            │ Enable A20 │
+                            │ (3 methods)│
+                            │ Load SHELL │
+                            │ to 0x3000  │
+                            └─────┬──────┘
+                                  │
+                                  v
+                            ┌────────────┐
+                            │ SHELL.BIN  │
                             │  mnos:\>   │
                             │  (sysinfo, │
                             │  help...)  │
                             └────────────┘
 ```
 
-### 2.2 Memory Layout (at MBR execution)
+### 2.2 Memory Layout
 
-| Address       | Contents                           |
-|---------------|------------------------------------|
+| Address | Contents |
+|---------|----------|
 | `0x0000:0x0000` – `0x0000:0x03FF` | Real-mode Interrupt Vector Table (IVT) |
-| `0x0000:0x0400` – `0x0000:0x04FF` | BIOS Data Area (BDA)               |
-| `0x0000:0x7C00` – `0x0000:0x7DFF` | **MBR code (512 bytes)** → later overwritten by VBR |
-| `0x0000:0x7E00` – `0x0000:0x9DFF` | VBR load buffer (N sectors, before copy to 0x7C00) |
-| `0x0000:0x7BFE` ↓                 | Stack (grows downward from 0x7C00) |
+| `0x0000:0x0400` – `0x0000:0x04FF` | BIOS Data Area (BDA) |
+| `0x0000:0x0600` – `0x0000:0x060F` | **Boot Info Block (BIB)** — shared parameters |
+| `0x0000:0x0800` – `0x0000:0x27FF` | **LOADER.BIN** (8 KB max) |
+| `0x0000:0x3000` – `0x0000:0x6FFF` | **SHELL.BIN** (16 KB max) |
+| `0x0000:0x7C00` – `0x0000:0x7FFF` | **VBR** (2 sectors, boot-time only) |
+| `0x0000:0x7BFE` ↓ | Stack (grows downward from 0x7C00) |
+| `0x0000:0x7E00` – `0x0000:0x9DFF` | VBR load buffer (MBR uses this temporarily) |
+
+#### Boot Info Block (BIB) — 0x0600
+
+The BIB is a fixed-address parameter block populated by early boot stages and
+read by later stages:
+
+| Offset | Size | Field | Set by |
+|--------|------|-------|--------|
+| 0 | 1 | `boot_drive` | VBR |
+| 1 | 1 | `a20_status` | LOADER (1=enabled, 0=failed) |
+| 2 | 4 | `part_lba` | VBR (partition start LBA) |
 
 ### 2.3 MBR Binary Format
 
@@ -137,16 +160,17 @@ from the first entry marked active (`0x80`).
 
 ### 2.4 Volume Boot Record (VBR)
 
-The VBR (`src/boot/vbr.asm`) occupies the boot area at the start of the active
-partition. It has a self-describing header that the MBR reads to determine how
-many sectors to load:
+The VBR (`src/boot/vbr.asm`) is a minimal loader at the start of the active
+partition. It has a self-describing header and loads LOADER.BIN from a fixed
+partition offset:
 
 ```
 VBR Header (starts at byte 0 of the partition):
   Offset 0:   EB xx      JMP SHORT past header
   Offset 2:   90         NOP
   Offset 3:   'MNOS'     Magic identifier (4 bytes)
-  Offset 7:   dw N       Boot area size in sectors (currently 16 = 8 KB)
+  Offset 7:   dw 2       VBR size in sectors
+  Offset 9:   dd N       Partition start LBA (stamped by create-disk.ps1)
 ```
 
 The MBR performs a two-phase load:
@@ -154,20 +178,51 @@ The MBR performs a two-phase load:
 2. **Phase 2** — Re-read all N sectors (from the header) to `0x7E00`.
 3. Copy N sectors from `0x7E00` to `0x7C00` and jump.
 
-#### VBR Sector Layout
+The VBR then:
+1. Populates the Boot Info Block (BIB) at 0x0600
+2. Loads LOADER.BIN from partition offset 4 to 0x0800
+3. Verifies the 'MNLD' magic
+4. Jumps to LOADER.BIN
 
-Sector 0 contains the header, a near-jump trampoline, and the boot signature
-(`0xAA55`) at offset 510. The actual VBR code begins in sector 1 (offset 512),
-since the code + data exceed 510 bytes.
+### 2.5 LOADER.BIN
 
-### 2.5 Disk Layout
+The loader (`src/loader/loader.asm`) is loaded by the VBR to 0x0800.  It has a
+self-describing header:
+
+```
+LOADER Header:
+  Offset 0:   'MNLD'    Magic identifier (4 bytes)
+  Offset 4:   dw N      Loader size in sectors
+```
+
+The loader:
+1. Enables the A20 gate (3 fallback methods, see §3.7)
+2. Loads SHELL.BIN from partition offset 20 to 0x3000
+3. Verifies the 'MNSH' magic
+4. Jumps to SHELL.BIN
+
+### 2.6 SHELL.BIN
+
+The shell (`src/shell/shell.asm`) is loaded by the loader to 0x3000.  It provides
+the interactive command-line interface.  Header:
+
+```
+SHELL Header:
+  Offset 0:   'MNSH'    Magic identifier (4 bytes)
+  Offset 4:   dw N      Shell size in sectors
+```
+
+### 2.7 Disk Layout
 
 ```
 Sector 0                → MBR (code + partition table + 0xAA55)
 Sectors 1–2047          → Gap (zeroed, reserved)
-Sector 2048             → VBR sector 0 (header + code, active partition start)
-Sectors 2049–2063       → VBR sectors 1–15 (reserved boot area, zeroed)
-Sectors 2064–32767      → Partition data (zeroed, future use)
+Sector 2048             → Partition start: VBR (2 sectors)
+Sector 2050–2051        → Reserved (VBR growth room)
+Sector 2052             → LOADER.BIN (at partition offset 4)
+Sectors 2054–2067       → Reserved (loader growth room)
+Sector 2068             → SHELL.BIN (at partition offset 20)
+Sectors 2078–32767      → Partition data (zeroed, future use)
 ```
 
 The MBR is a flat 512-byte binary. NASM's `-f bin` output format produces a raw binary
@@ -177,9 +232,12 @@ with no headers — exactly what the BIOS expects.
 
 ## 3. Interactive Shell
 
-After the MBR chain-loads the VBR, the VBR enables the A20 gate (see §3.7),
-clears the screen, displays a version banner (`MNOS v0.3.0`), and enters an
+After the three-stage boot chain (MBR → VBR → LOADER → SHELL), the shell
+clears the screen, displays a version banner (`MNOS v0.4.0`), and enters an
 interactive command loop with a `mnos:\>` prompt.
+
+The shell reads boot parameters (boot drive, A20 status) from the Boot Info
+Block (BIB) at 0x0600.
 
 ### 3.1 Shell Architecture
 
@@ -262,9 +320,10 @@ configured for strict 8086 compatibility.
 
 ### 3.7 A20 Gate Enablement
 
-As of v0.3.0, the VBR explicitly enables the A20 line at boot before entering
-the shell.  This ensures access to memory above 1 MB regardless of the platform.
-Three methods are attempted in order, with a wrap-around verification after each:
+As of v0.3.0 (now in LOADER.BIN since v0.4.0), the A20 line is explicitly enabled
+at boot before loading the shell.  This ensures access to memory above 1 MB
+regardless of the platform.  Three methods are attempted in order, with a
+wrap-around verification after each:
 
 | Method | Mechanism | Notes |
 |--------|-----------|-------|
@@ -283,16 +342,18 @@ but prints a warning.
 Displays static version and build information:
 
 ```
-  MNOS v0.3.0
+  MNOS v0.4.0
   Arch:      x86 real mode (16-bit)
   Assembler: NASM
   Platform:  Hyper-V Gen 1
-  Boot:      MBR -> VBR (16 sectors / 8 KB)
+  Boot:      MBR -> VBR -> LOADER -> SHELL
   Disk:      16 MB fixed VHD
   Source:    github.com/ambaner/mini-os
 ```
 
-### 3.8 VBR Subroutines
+### 3.8 Shell Subroutines
+
+These subroutines live in SHELL.BIN and are available to all commands:
 
 | Routine | Description |
 |---------|-------------|
@@ -379,9 +440,9 @@ versions.
 
 | Script | Purpose | Elevation |
 |--------|---------|-----------|
-| `tools/build.ps1` | Assemble MBR + VBR, create disk image + VHD | Not required |
+| `tools/build.ps1` | Assemble MBR + VBR + LOADER + SHELL, create disk image + VHD | Not required |
 | `tools/setup-vm.ps1` | Create/update Hyper-V VM | **Admin required** |
-| `tools/create-disk.ps1` | Stamp partition table + VBR into raw image | Not required (called by build.ps1) |
+| `tools/create-disk.ps1` | Stamp partition table + VBR + LOADER + SHELL into raw image | Not required (called by build.ps1) |
 | `tools/create-vhd.ps1` | Raw image → VHD conversion | Not required (called by build.ps1) |
 
 ### 5.3 No Other Dependencies
@@ -404,12 +465,19 @@ is PowerShell + NASM.
      │      └─ 512 bytes: code + empty partition table + 0xAA55
      │
      ├─ 3. nasm -f bin -o build/boot/vbr.bin src/boot/vbr.asm
-     │      └─ 8192 bytes (16 sectors): header + system info + 0xAA55
+     │      └─ 1024 bytes (2 sectors): header + loader chain + 0xAA55
      │
-     ├─ 4. tools/create-disk.ps1 — build raw disk image
-     │      └─ Stamps partition table into MBR, writes VBR at partition LBA
+     ├─ 4. nasm -f bin -o build/boot/loader.bin src/loader/loader.asm
+     │      └─ 1024 bytes (2 sectors): A20 enablement + shell chain
      │
-     └─ 5. tools/create-vhd.ps1 — wrap as VHD
+     ├─ 5. nasm -f bin -o build/boot/shell.bin src/shell/shell.asm
+     │      └─ 5120 bytes (10 sectors): interactive shell + commands
+     │
+     ├─ 6. tools/create-disk.ps1 — build raw disk image
+     │      └─ Stamps partition table into MBR, partition LBA into VBR,
+     │         writes VBR/LOADER/SHELL at partition offsets 0/4/20
+     │
+     └─ 7. tools/create-vhd.ps1 — wrap as VHD
             └─ Appends 512-byte VHD footer
 ```
 
@@ -418,7 +486,9 @@ is PowerShell + NASM.
 | File | Size | Description |
 |------|------|-------------|
 | `build/boot/mbr.bin` | 512 B | Raw MBR binary (before partition table stamp) |
-| `build/boot/vbr.bin` | 8 KB (16 × 512) | Raw VBR binary (multi-sector) |
+| `build/boot/vbr.bin` | 1 KB (2 × 512) | Raw VBR binary |
+| `build/boot/loader.bin` | 1 KB (2 × 512) | LOADER.BIN with A20 enablement |
+| `build/boot/shell.bin` | 5 KB (10 × 512) | SHELL.BIN with all commands |
 | `build/boot/mini-os.img` | 16 MB | Partitioned raw disk image |
 | `build/boot/mini-os.vhd` | 16 MB + 512 B | Bootable fixed VHD |
 
@@ -473,20 +543,26 @@ mini-os/
 ├── doc/
 │   └── DESIGN.md                 ← this document
 ├── src/
-│   └── boot/
-│       ├── mbr.asm               MBR — partition table scan + VBR chain-load
-│       └── vbr.asm               VBR — interactive shell + sysinfo (16 sectors)
+│   ├── boot/
+│   │   ├── mbr.asm               MBR — partition table scan + VBR chain-load
+│   │   └── vbr.asm               VBR — header + loads LOADER.BIN (2 sectors)
+│   ├── loader/
+│   │   └── loader.asm            LOADER — A20 enablement + loads SHELL.BIN
+│   └── shell/
+│       └── shell.asm             SHELL — interactive shell + all commands
 ├── tools/
-│   ├── build.ps1                 Build logic
-│   ├── create-disk.ps1           Raw disk image with partition table + VBR
+│   ├── build.ps1                 Build logic (assembles 4 binaries)
+│   ├── create-disk.ps1           Raw disk image with MBR + VBR + LOADER + SHELL
 │   ├── create-vhd.bat            VHD tool — batch wrapper
 │   ├── create-vhd.ps1            Raw image → fixed VHD converter
 │   ├── setup-vm.ps1              Hyper-V VM create/update logic
 │   └── nasm/                     Auto-downloaded NASM (gitignored)
 ├── build/                        Build output (gitignored)
 │   └── boot/
-│       ├── mbr.bin               Assembled MBR binary
-│       ├── vbr.bin               Assembled VBR binary
+│       ├── mbr.bin               Assembled MBR binary (512 B)
+│       ├── vbr.bin               Assembled VBR binary (1 KB)
+│       ├── loader.bin            Assembled LOADER binary (1 KB)
+│       ├── shell.bin             Assembled SHELL binary (5 KB)
 │       ├── mini-os.img           Partitioned raw disk image
 │       └── mini-os.vhd           Bootable VHD
 ├── build.bat                     Build entry point
@@ -508,14 +584,15 @@ This document will be updated as the project evolves. Planned milestones:
 | Milestone | Description |
 |-----------|-------------|
 | **M0** ✅ | Boot MBR, print banner, halt |
-| **M1** ✅ | Partition table scan, VBR chain-load, multi-sector boot area (16 sectors / 8 KB) |
+| **M1** ✅ | Partition table scan, VBR chain-load, multi-sector boot area |
 | **M1+** ✅ | VBR system information display (5 pages: CPU, memory, BDA, video/disk, IVT) |
 | **M2** ✅ | Interactive shell (`mnos:\>`) with command dispatch, `sysinfo` as first command |
 | **M3** ✅ | A20 gate enablement (BIOS / 8042 / Fast A20 with fallbacks) |
-| **M4** | Kernel binary load from disk |
-| **M4** | Switch to 32-bit protected mode |
-| **M5** | Basic kernel with screen output (direct VGA framebuffer) |
-| **M6** | Simple memory manager |
+| **M4** ✅ | Three-stage boot chain (VBR → LOADER.BIN → SHELL.BIN), Boot Info Block |
+| **M5** | Switch to 32-bit protected mode |
+| **M6** | Basic kernel with screen output (direct VGA framebuffer) |
+| **M7** | Simple memory manager |
+| **M8** | File system support (/boot partition) |
 
 ---
 

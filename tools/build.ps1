@@ -33,8 +33,12 @@ $NasmDir    = Join-Path $ToolsDir 'nasm'
 $SrcBoot    = Join-Path $Root 'src\boot'
 $MbrAsm     = Join-Path $SrcBoot 'mbr.asm'
 $VbrAsm     = Join-Path $SrcBoot 'vbr.asm'
+$LoaderAsm  = Join-Path $Root 'src\loader\loader.asm'
+$ShellAsm   = Join-Path $Root 'src\shell\shell.asm'
 $MbrBin     = Join-Path $BuildDir 'mbr.bin'
 $VbrBin     = Join-Path $BuildDir 'vbr.bin'
+$LoaderBin  = Join-Path $BuildDir 'loader.bin'
+$ShellBin   = Join-Path $BuildDir 'shell.bin'
 $RawImg     = Join-Path $BuildDir 'mini-os.img'
 $VhdOut     = Join-Path $BuildDir 'mini-os.vhd'
 
@@ -105,10 +109,28 @@ $vbrSize = (Get-Item $VbrBin).Length
 Write-Step "  vbr.bin: $vbrSize bytes ($([math]::Ceiling($vbrSize / 512)) sectors)"
 if (($vbrSize % 512) -ne 0) { Write-Warning "VBR size is not a multiple of 512 bytes." }
 
+# ---------- assemble LOADER ------------------------------------------------
+Write-Step 'Assembling LOADER...'
+& $nasm -f bin -o $LoaderBin $LoaderAsm
+if ($LASTEXITCODE -ne 0) { throw 'NASM assembly of LOADER failed.' }
+
+$loaderSize = (Get-Item $LoaderBin).Length
+Write-Step "  loader.bin: $loaderSize bytes ($([math]::Ceiling($loaderSize / 512)) sectors)"
+if (($loaderSize % 512) -ne 0) { Write-Warning "LOADER size is not a multiple of 512 bytes." }
+
+# ---------- assemble SHELL -------------------------------------------------
+Write-Step 'Assembling SHELL...'
+& $nasm -f bin -o $ShellBin $ShellAsm
+if ($LASTEXITCODE -ne 0) { throw 'NASM assembly of SHELL failed.' }
+
+$shellSize = (Get-Item $ShellBin).Length
+Write-Step "  shell.bin: $shellSize bytes ($([math]::Ceiling($shellSize / 512)) sectors)"
+if (($shellSize % 512) -ne 0) { Write-Warning "SHELL size is not a multiple of 512 bytes." }
+
 # ---------- create partitioned disk image -----------------------------------
 Write-Step 'Creating partitioned disk image...'
 $DiskScript = Join-Path $ToolsDir 'create-disk.ps1'
-& $DiskScript -MbrPath $MbrBin -VbrPath $VbrBin -OutputPath $RawImg -SizeMB $DiskSizeMB
+& $DiskScript -MbrPath $MbrBin -VbrPath $VbrBin -LoaderPath $LoaderBin -ShellPath $ShellBin -OutputPath $RawImg -SizeMB $DiskSizeMB
 
 # ---------- create VHD ------------------------------------------------------
 Write-Step 'Creating VHD...'

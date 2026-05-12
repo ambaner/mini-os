@@ -1,20 +1,27 @@
 <#
 .SYNOPSIS
-    Create a partitioned raw disk image from MBR and VBR binaries.
+    Create a partitioned raw disk image from MBR, VBR, loader, and shell binaries.
 
 .DESCRIPTION
     Builds a raw disk image with:
       1. MBR at sector 0 (with partition table stamped in)
       2. One partition starting at a configurable LBA offset
       3. VBR written at the partition's first sector
-
-    The partition table entry is written into the MBR binary at offset 0x1BE.
+      4. LOADER.BIN written at partition offset 4 sectors
+      5. SHELL.BIN written at partition offset 20 sectors
+      6. Partition start LBA stamped into VBR header at offset 9
 
 .PARAMETER MbrPath
     Path to the assembled MBR binary (512 bytes).
 
 .PARAMETER VbrPath
-    Path to the assembled VBR binary (512 bytes).
+    Path to the assembled VBR binary (multiple of 512 bytes).
+
+.PARAMETER LoaderPath
+    Path to the assembled LOADER.BIN binary (multiple of 512 bytes).
+
+.PARAMETER ShellPath
+    Path to the assembled SHELL.BIN binary (multiple of 512 bytes).
 
 .PARAMETER OutputPath
     Path for the output raw disk image.
@@ -33,6 +40,8 @@
 param(
     [Parameter(Mandatory)][string]$MbrPath,
     [Parameter(Mandatory)][string]$VbrPath,
+    [Parameter(Mandatory)][string]$LoaderPath,
+    [Parameter(Mandatory)][string]$ShellPath,
     [Parameter(Mandatory)][string]$OutputPath,
     [int]$SizeMB = 16,
     [int]$PartitionStartLBA = 2048,
@@ -40,6 +49,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# --- Partition-relative offsets for loader and shell (in sectors) ---
+$LoaderPartOff = 4                   # LOADER.BIN at partition offset 4
+$ShellPartOff  = 20                  # SHELL.BIN at partition offset 20
 
 function Write-Step([string]$msg) { Write-Host "[create-disk] $msg" -ForegroundColor Cyan }
 
@@ -64,6 +77,33 @@ if ($vbrBytes[510] -ne 0x55 -or $vbrBytes[511] -ne 0xAA) {
 }
 $vbrSectors = $vbrBytes.Length / 512
 Write-Step "VBR: $($vbrBytes.Length) bytes ($vbrSectors sectors)"
+
+$loaderBytes = [System.IO.File]::ReadAllBytes((Resolve-Path $LoaderPath))
+if (($loaderBytes.Length % 512) -ne 0) {
+    throw "LOADER.BIN must be a multiple of 512 bytes (got $($loaderBytes.Length))."
+}
+$magic = [System.Text.Encoding]::ASCII.GetString($loaderBytes, 0, 4)
+if ($magic -ne 'MNLD') {
+    throw "LOADER.BIN magic is '$magic' (expected 'MNLD')."
+}
+$loaderSectors = $loaderBytes.Length / 512
+Write-Step "LOADER: $($loaderBytes.Length) bytes ($loaderSectors sectors)"
+
+$shellBytes = [System.IO.File]::ReadAllBytes((Resolve-Path $ShellPath))
+if (($shellBytes.Length % 512) -ne 0) {
+    throw "SHELL.BIN must be a multiple of 512 bytes (got $($shellBytes.Length))."
+}
+$shellMagic = [System.Text.Encoding]::ASCII.GetString($shellBytes, 0, 4)
+if ($shellMagic -ne 'MNSH') {
+    throw "SHELL.BIN magic is '$shellMagic' (expected 'MNSH')."
+}
+$shellSectors = $shellBytes.Length / 512
+Write-Step "SHELL: $($shellBytes.Length) bytes ($shellSectors sectors)"
+
+# Verify no overlaps
+if (($LoaderPartOff + $loaderSectors) -gt $ShellPartOff) {
+    throw "LOADER.BIN ($loaderSectors sectors at offset $LoaderPartOff) overlaps SHELL.BIN (at offset $ShellPartOff)."
+}
 
 $diskSize = [long]$SizeMB * 1024 * 1024
 $totalSectors = [int]($diskSize / 512)
@@ -113,6 +153,12 @@ $sizeBytes = [BitConverter]::GetBytes([uint32]$partSizeSectors)
 
 Write-Step "Partition table stamped into MBR."
 
+# ---------- stamp partition start LBA into VBR header -----------------------
+# VBR header offset 9: dd partition_start_lba (4 bytes, little-endian)
+$partLbaBytes = [BitConverter]::GetBytes([uint32]$PartitionStartLBA)
+[Array]::Copy($partLbaBytes, 0, $vbrBytes, 9, 4)
+Write-Step "Partition LBA ($PartitionStartLBA) stamped into VBR header at offset 9."
+
 # ---------- build the raw disk image ----------------------------------------
 Write-Step "Writing disk image..."
 
@@ -136,8 +182,31 @@ if ($gapBytes -gt 0) {
 # Write VBR (all sectors) at partition start
 $fs.Write($vbrBytes, 0, $vbrBytes.Length)
 
+# Zero-fill gap between VBR and LOADER.BIN
+$vbrEndSector = $vbrSectors
+$gapToLoader = ($LoaderPartOff - $vbrEndSector) * 512
+if ($gapToLoader -gt 0) {
+    $zeroBuf = [byte[]]::new($gapToLoader)
+    $fs.Write($zeroBuf, 0, $gapToLoader)
+}
+
+# Write LOADER.BIN at partition offset LoaderPartOff
+$fs.Write($loaderBytes, 0, $loaderBytes.Length)
+
+# Zero-fill gap between LOADER.BIN and SHELL.BIN
+$loaderEndSector = $LoaderPartOff + $loaderSectors
+$gapToShell = ($ShellPartOff - $loaderEndSector) * 512
+if ($gapToShell -gt 0) {
+    $zeroBuf = [byte[]]::new($gapToShell)
+    $fs.Write($zeroBuf, 0, $gapToShell)
+}
+
+# Write SHELL.BIN at partition offset ShellPartOff
+$fs.Write($shellBytes, 0, $shellBytes.Length)
+
 # Zero-fill the rest of the disk
-$remainingBytes = $diskSize - (($PartitionStartLBA * 512) + $vbrBytes.Length)
+$shellEndAbsLBA = $PartitionStartLBA + $ShellPartOff + $shellSectors
+$remainingBytes = $diskSize - ($shellEndAbsLBA * 512)
 if ($remainingBytes -gt 0) {
     $zeroBuf = [byte[]]::new([math]::Min($remainingBytes, 65536))
     $remaining = $remainingBytes
@@ -154,3 +223,5 @@ $fileSize = (Get-Item $OutputPath).Length
 Write-Step "Raw image: $OutputPath ($fileSize bytes)"
 Write-Step "  Sector 0       : MBR (with partition table)"
 Write-Step "  Sector $PartitionStartLBA  : VBR ($vbrSectors sectors, $($vbrBytes.Length) bytes)"
+Write-Step "  Sector $($PartitionStartLBA + $LoaderPartOff)  : LOADER.BIN ($loaderSectors sectors, $($loaderBytes.Length) bytes)"
+Write-Step "  Sector $($PartitionStartLBA + $ShellPartOff)  : SHELL.BIN ($shellSectors sectors, $($shellBytes.Length) bytes)"

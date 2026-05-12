@@ -239,6 +239,10 @@ start:
     ;
     ; The VBR is assembled with [ORG 0x7C00], so it expects to run there.
 
+    ; Save boot drive in DL before the copy overwrites our data section.
+    ; The rep movsw below does not touch DX, so DL is preserved across it.
+    mov dl, [boot_drive]            ; DL = boot drive (safe in register)
+
     mov cx, [0x7E00 + 7]            ; Re-read sector count from header
     shl cx, 8                       ; Multiply by 256 (512 bytes / 2 = 256
                                     ; words per sector) → total word count
@@ -247,7 +251,7 @@ start:
     mov di, 0x7C00                  ; Destination: where VBR expects to run
     rep movsw                       ; Copy CX words (N × 512 bytes)
 
-    mov dl, [boot_drive]            ; Restore boot drive in DL for the VBR
+    ; DL still has boot drive from above — rep movsw doesn't clobber DX.
     jmp 0x0000:0x7C00               ; Far jump to VBR (also sets CS = 0)
 
     ; --- Error handlers ------------------------------------------------------

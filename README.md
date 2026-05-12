@@ -1,9 +1,9 @@
 # mini-os
 
-A minimalistic operating system, built from scratch — currently at **v0.3.0**.
-MBR reads the partition table, chain-loads a multi-sector VBR which enables the
-A20 gate for full memory access, then drops into an interactive shell (`mnos:\>`)
-with commands for system info, CPU details, memory diagnostics, version info, and more.
+A minimalistic operating system, built from scratch — currently at **v0.4.0**.
+MBR reads the partition table, chain-loads a VBR which loads a stage-2 loader
+(A20 gate enablement), which loads the interactive shell (`mnos:\>`) with
+commands for system info, CPU details, memory diagnostics, version info, and more.
 
 ![mini-os booting in Hyper-V](doc/booted.gif)
 
@@ -24,7 +24,7 @@ build.bat
 
 The build script will:
 1. Download NASM into `tools/nasm/` if not already installed
-2. Assemble the MBR and VBR (16 sectors / 8 KB)
+2. Assemble MBR, VBR, LOADER, and SHELL binaries
 3. Create `build/boot/mini-os.vhd` (16 MB fixed VHD with partition table)
 
 ## Running in Hyper-V
@@ -43,7 +43,7 @@ The script will prompt for a VM name and location (defaults are fine), then crea
 You should see the MBR banner and partition table info, then the shell:
 
 ```
-  MNOS v0.3.0
+  MNOS v0.4.0
 
 mnos:\>
 ```
@@ -76,9 +76,13 @@ mini-os/
 ├── doc/
 │   └── DESIGN.md             # Architecture & design document
 ├── src/
-│   └── boot/
-│       ├── mbr.asm           # MBR — partition table scan + VBR chain-load
-│       └── vbr.asm           # VBR — interactive shell + sysinfo (16 sectors)
+│   ├── boot/
+│   │   ├── mbr.asm           # MBR — partition table scan + VBR chain-load
+│   │   └── vbr.asm           # VBR — loads LOADER.BIN (2 sectors)
+│   ├── loader/
+│   │   └── loader.asm        # Stage-2 loader — A20 gate, loads SHELL.BIN
+│   └── shell/
+│       └── shell.asm         # Interactive shell + all commands
 ├── tools/
 │   ├── build.ps1             # Build logic (called by build.bat)
 │   ├── create-disk.ps1       # Partitioned raw disk image creator
@@ -90,6 +94,8 @@ mini-os/
 │   └── boot/
 │       ├── mbr.bin
 │       ├── vbr.bin
+│       ├── loader.bin
+│       ├── shell.bin
 │       ├── mini-os.img
 │       └── mini-os.vhd
 ├── build.bat                 # Build entry point
@@ -120,6 +126,7 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.2.6` | **`mem` command** | Detailed memory info: conventional/extended RAM, A20 gate status, memory layout, E820 map |
 | `v0.2.7` | **`ver` + CPU/EDD sysinfo** | Version command, CPUID details page, EDD disk info, sysinfo now 5 pages |
 | `v0.3.0` | **A20 gate enablement** | VBR enables A20 at boot (BIOS/8042/Fast A20 fallbacks), full memory access above 1 MB |
+| `v0.4.0` | **Three-stage boot chain** | VBR → LOADER.BIN → SHELL.BIN split; A20 in loader, shell as separate binary, BIB at 0x0600 |
 
 ```cmd
 git checkout v0.1.0      # see the project at any prior milestone

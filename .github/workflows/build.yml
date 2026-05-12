@@ -26,11 +26,13 @@ jobs:
       run: |
         $mbr = "build\boot\mbr.bin"
         $vbr = "build\boot\vbr.bin"
+        $ldr = "build\boot\loader.bin"
+        $shl = "build\boot\shell.bin"
         $img = "build\boot\mini-os.img"
         $vhd = "build\boot\mini-os.vhd"
 
         # Check all files exist
-        foreach ($f in @($mbr, $vbr, $img, $vhd)) {
+        foreach ($f in @($mbr, $vbr, $ldr, $shl, $img, $vhd)) {
             if (-not (Test-Path $f)) { throw "$f not found" }
         }
 
@@ -61,6 +63,26 @@ jobs:
             throw "VBR binary is $vbrSectors sectors but header declares $bootSectors"
         }
 
+        # LOADER: multiple of 512 bytes + MNLD magic
+        $ldrBytes = [System.IO.File]::ReadAllBytes($ldr)
+        if (($ldrBytes.Length % 512) -ne 0) { throw "loader.bin is $($ldrBytes.Length) bytes (not a multiple of 512)" }
+        $ldrMagic = [System.Text.Encoding]::ASCII.GetString($ldrBytes, 0, 4)
+        if ($ldrMagic -ne 'MNLD') { throw "LOADER magic is '$ldrMagic' (expected 'MNLD')" }
+        $ldrSectors = [BitConverter]::ToUInt16($ldrBytes, 4)
+        if ($ldrSectors -ne ($ldrBytes.Length / 512)) {
+            throw "LOADER binary is $($ldrBytes.Length / 512) sectors but header declares $ldrSectors"
+        }
+
+        # SHELL: multiple of 512 bytes + MNSH magic
+        $shlBytes = [System.IO.File]::ReadAllBytes($shl)
+        if (($shlBytes.Length % 512) -ne 0) { throw "shell.bin is $($shlBytes.Length) bytes (not a multiple of 512)" }
+        $shlMagic = [System.Text.Encoding]::ASCII.GetString($shlBytes, 0, 4)
+        if ($shlMagic -ne 'MNSH') { throw "SHELL magic is '$shlMagic' (expected 'MNSH')" }
+        $shlSectors = [BitConverter]::ToUInt16($shlBytes, 4)
+        if ($shlSectors -ne ($shlBytes.Length / 512)) {
+            throw "SHELL binary is $($shlBytes.Length / 512) sectors but header declares $shlSectors"
+        }
+
         # Disk image: partition table present
         $imgBytes = [System.IO.File]::ReadAllBytes($img)
         if ($imgBytes[0x1BE] -ne 0x80) { throw "Partition 1 not marked active in disk image" }
@@ -77,6 +99,8 @@ jobs:
         Write-Host "Build verification passed:"
         Write-Host "  mbr.bin      : $($mbrBytes.Length) bytes, signature OK"
         Write-Host "  vbr.bin      : $($vbrBytes.Length) bytes ($vbrSectors sectors), signature OK, magic MNOS"
+        Write-Host "  loader.bin   : $($ldrBytes.Length) bytes ($ldrSectors sectors), magic MNLD"
+        Write-Host "  shell.bin    : $($shlBytes.Length) bytes ($shlSectors sectors), magic MNSH"
         Write-Host "  mini-os.img  : $($imgBytes.Length) bytes, partition table OK"
         Write-Host "  mini-os.vhd  : $($vhdBytes.Length) bytes, VHD footer OK"
 
@@ -87,5 +111,7 @@ jobs:
         path: |
           build/boot/mbr.bin
           build/boot/vbr.bin
+          build/boot/loader.bin
+          build/boot/shell.bin
           build/boot/mini-os.vhd
         retention-days: 30

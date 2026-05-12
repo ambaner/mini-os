@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.4.0] — 2026-05-11
+
+### Added
+- **Three-stage boot chain** — refactored from monolithic VBR to:
+  - **VBR** (2 sectors / 1 KB): loads LOADER.BIN from fixed partition offset
+  - **LOADER.BIN** (2 sectors / 1 KB): A20 gate enablement, loads SHELL.BIN
+  - **SHELL.BIN** (10 sectors / 5 KB): interactive shell with all commands
+- **Boot Info Block (BIB)** at 0x0600 — shared parameter block passed between
+  boot stages (boot drive, A20 status, partition LBA)
+- **Binary headers** — LOADER uses 'MNLD' magic, SHELL uses 'MNSH' magic,
+  each with self-describing sector count
+- **Partition LBA stamping** — create-disk.ps1 writes the partition start LBA
+  into the VBR header at offset 9, enabling partition-relative addressing
+
+### Changed
+- VBR shrunk from 16 sectors (8 KB) to 2 sectors (1 KB) — now a pure loader
+- A20 enablement moved from VBR to LOADER.BIN
+- Shell and all commands moved from VBR to SHELL.BIN (separate binary)
+- Memory layout updated: LOADER at 0x0800, SHELL at 0x3000, BIB at 0x0600
+- `mem` command layout display updated for new memory map
+- `ver` command updated: boot chain shows "MBR -> VBR -> LOADER -> SHELL"
+- Version banner updated to v0.4.0
+
+### Fixed
+- **MBR boot drive bug** — DL was being restored from memory after `rep movsw`
+  had overwritten the MBR data section; now saved to register before the copy
+
+### Technical
+- Partition disk layout: VBR at offset 0, LOADER at offset 4, SHELL at offset 20
+- Build system: build.ps1 now assembles 4 binaries; create-disk.ps1 places all 3
+  within the partition; build.yml validates all binaries
+- Shell has room to grow: 10 sectors used of 32 max (16 KB)
+
 ## [0.3.0] — 2026-05-11
 
 ### Added

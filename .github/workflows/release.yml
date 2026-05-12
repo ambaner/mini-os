@@ -35,6 +35,8 @@ jobs:
         # Copy artifacts
         Copy-Item "build\boot\mbr.bin"       "$stagingDir\distro\mbr\"
         Copy-Item "build\boot\vbr.bin"       "$stagingDir\distro\mbr\"
+        Copy-Item "build\boot\loader.bin"    "$stagingDir\distro\mbr\"
+        Copy-Item "build\boot\shell.bin"     "$stagingDir\distro\mbr\"
         Copy-Item "build\boot\mini-os.vhd"   "$stagingDir\vhd\"
         Copy-Item "tools\setup-vm.ps1"        "$stagingDir\setup-vm\"
         Copy-Item "tools\create-vhd.ps1"      "$stagingDir\tools\"
@@ -58,14 +60,16 @@ jobs:
         ============
 
         A minimalistic bootable OS. MBR reads the partition table, loads the
-        multi-sector VBR from the active partition. The VBR boots into an
-        interactive shell (mnos:\>) with commands like sysinfo, mem, ver, help, cls, reboot.
-        The VBR enables the A20 gate at boot for full memory access above 1 MB.
+        VBR from the active partition. Three-stage boot chain: VBR loads
+        LOADER.BIN (A20 enablement), which loads SHELL.BIN (interactive shell).
+        Commands: sysinfo, mem, ver, help, cls, reboot.
 
         CONTENTS
         --------
-        distro\mbr\mbr.bin    Raw 512-byte MBR boot sector
-        distro\mbr\vbr.bin    Raw VBR binary (16 sectors / 8 KB)
+        distro\mbr\mbr.bin      Raw 512-byte MBR boot sector
+        distro\mbr\vbr.bin      Raw VBR binary (2 sectors / 1 KB)
+        distro\mbr\loader.bin   LOADER.BIN (2 sectors / 1 KB)
+        distro\mbr\shell.bin    SHELL.BIN (10 sectors / 5 KB)
         vhd\mini-os.vhd       16 MB fixed VHD — ready to boot in Hyper-V
         setup-vm\             Scripts to create/update a Hyper-V VM
         tools\                VHD creation tools (if you rebuild from source)
