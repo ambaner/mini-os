@@ -484,23 +484,26 @@ is PowerShell + NASM.
      │
      ├─ 1. Locate or download NASM
      │
-     ├─ 2. nasm -f bin -o build/boot/mbr.bin src/boot/mbr.asm
+     ├─ 2. nasm -f bin -I src/include/ -o build/boot/mbr.bin src/boot/mbr.asm
      │      └─ 512 bytes: code + empty partition table + 0xAA55
      │
-     ├─ 3. nasm -f bin -o build/boot/vbr.bin src/boot/vbr.asm
-     │      └─ 1024 bytes (2 sectors): header + loader chain + 0xAA55
+     ├─ 3. nasm -f bin -I src/include/ -o build/boot/vbr.bin src/boot/vbr.asm
+     │      └─ 1024 bytes (2 sectors): header + load_mnex chain + 0xAA55
      │
-     ├─ 4. nasm -f bin -o build/boot/loader.bin src/loader/loader.asm
-     │      └─ 1024 bytes (2 sectors): A20 enablement + shell chain
+     ├─ 4. nasm -f bin -I src/include/ -o build/boot/loader.bin src/loader/loader.asm
+     │      └─ 1024 bytes (2 sectors): A20 enablement + load_mnex chain
      │
-     ├─ 5. nasm -f bin -o build/boot/shell.bin src/shell/shell.asm
+     ├─ 5. nasm -f bin -I src/include/ -o build/boot/kernel.bin src/kernel/kernel.asm
+     │      └─ 2048 bytes (4 sectors): INT 0x80 handler + O(1) jump table
+     │
+     ├─ 6. nasm -f bin -I src/include/ -o build/boot/shell.bin src/shell/shell.asm
      │      └─ 5120 bytes (10 sectors): interactive shell + commands
      │
-     ├─ 6. tools/create-disk.ps1 — build raw disk image
+     ├─ 7. tools/create-disk.ps1 — build raw disk image
      │      └─ Stamps partition table into MBR, partition LBA into VBR,
-     │         writes VBR/LOADER/SHELL at partition offsets 0/4/20
+     │         writes VBR/LOADER/KERNEL/SHELL at partition offsets 0/4/20/36
      │
-     └─ 7. tools/create-vhd.ps1 — wrap as VHD
+     └─ 8. tools/create-vhd.ps1 — wrap as VHD
             └─ Appends 512-byte VHD footer
 ```
 
@@ -566,16 +569,24 @@ mini-os/
 ├── doc/
 │   └── DESIGN.md                 ← this document
 ├── src/
+│   ├── include/                     Shared assembly includes (%include)
+│   │   ├── bib.inc                  Boot Info Block field addresses
+│   │   ├── memory.inc               Component memory load addresses
+│   │   ├── disk.inc                 Partition disk layout offsets
+│   │   ├── syscalls.inc             INT 0x80 syscall function numbers
+│   │   └── load_binary.inc          Shared MNEX binary loader subroutine
 │   ├── boot/
 │   │   ├── mbr.asm               MBR — partition table scan + VBR chain-load
 │   │   └── vbr.asm               VBR — header + loads LOADER.BIN (2 sectors)
 │   ├── loader/
-│   │   └── loader.asm            LOADER — A20 enablement + loads SHELL.BIN
+│   │   └── loader.asm            LOADER — A20 enablement + loads KERNEL.BIN
+│   ├── kernel/
+│   │   └── kernel.asm            KERNEL — INT 0x80 + O(1) jump table + loads SHELL
 │   └── shell/
-│       └── shell.asm             SHELL — interactive shell + all commands
+│       └── shell.asm             SHELL — interactive shell (user-mode MNEX)
 ├── tools/
-│   ├── build.ps1                 Build logic (assembles 4 binaries)
-│   ├── create-disk.ps1           Raw disk image with MBR + VBR + LOADER + SHELL
+│   ├── build.ps1                 Build logic (assembles 5 binaries with -I include)
+│   ├── create-disk.ps1           Raw disk image with MBR + VBR + LOADER + KERNEL + SHELL
 │   ├── create-vhd.bat            VHD tool — batch wrapper
 │   ├── create-vhd.ps1            Raw image → fixed VHD converter
 │   ├── setup-vm.ps1              Hyper-V VM create/update logic
@@ -585,6 +596,7 @@ mini-os/
 │       ├── mbr.bin               Assembled MBR binary (512 B)
 │       ├── vbr.bin               Assembled VBR binary (1 KB)
 │       ├── loader.bin            Assembled LOADER binary (1 KB)
+│       ├── kernel.bin            Assembled KERNEL binary (2 KB)
 │       ├── shell.bin             Assembled SHELL binary (5 KB)
 │       ├── mini-os.img           Partitioned raw disk image
 │       └── mini-os.vhd           Bootable VHD

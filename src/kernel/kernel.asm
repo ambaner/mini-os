@@ -30,49 +30,13 @@
 ; Assembled with:  nasm -f bin -o kernel.bin src/kernel/kernel.asm
 ; =============================================================================
 
+%include "bib.inc"
+%include "memory.inc"
+%include "disk.inc"
+%include "syscalls.inc"
+
 [BITS 16]
 [ORG 0x5000]                        ; Loader loads us here
-
-; =============================================================================
-; CONSTANTS
-; =============================================================================
-SHELL_SEG       equ 0x0000          ; Segment for SHELL.BIN load address
-SHELL_OFF       equ 0x3000          ; Offset for SHELL.BIN load address
-SHELL_PART_OFF  equ 36              ; Partition-relative sector offset for shell
-SHELL_MAX_SEC   equ 32              ; Maximum sectors for SHELL.BIN
-
-BIB_DRIVE       equ 0x0600          ; Boot drive (from VBR)
-BIB_A20         equ 0x0601          ; A20 status (from loader)
-BIB_PART_LBA    equ 0x0602          ; Partition start LBA (from VBR)
-
-; --- Syscall function numbers ------------------------------------------------
-SYS_PRINT_STRING equ 0x01           ; DS:SI = string pointer
-SYS_PRINT_CHAR   equ 0x02           ; AL = character
-SYS_READ_KEY     equ 0x03           ; Returns: AH=scancode, AL=ASCII
-SYS_READ_SECTOR  equ 0x04           ; EAX=LBA, ES:BX=buffer, CL=count
-SYS_GET_VERSION  equ 0x05           ; Returns: AH=major, AL=minor
-SYS_CLEAR_SCREEN equ 0x06           ; No args
-SYS_SET_CURSOR   equ 0x07           ; DH=row, DL=col
-SYS_GET_CURSOR   equ 0x08           ; Returns: DH=row, DL=col
-SYS_CHECK_A20    equ 0x09           ; Returns: AL=1 if enabled, 0 if not
-SYS_GET_CONV_MEM equ 0x0A           ; Returns: AX=KB of conventional memory
-SYS_GET_EXT_MEM  equ 0x0B           ; Returns: AX=KB of extended memory, CF=err
-SYS_GET_E820     equ 0x0C           ; EBX=continuation, ES:DI=buf; Returns: EBX, CF
-SYS_REBOOT       equ 0x0D           ; Warm reboot (does not return)
-SYS_GET_DRIVE_INFO equ 0x0E         ; Returns drive geometry in registers
-SYS_GET_BIB      equ 0x0F           ; Returns: ES:BX = BIB address
-SYS_PRINT_HEX8   equ 0x10          ; AL = byte to print as hex
-SYS_PRINT_HEX16  equ 0x11          ; AX = word to print as hex
-SYS_PRINT_DEC16  equ 0x12          ; AX = word to print as decimal
-SYS_WAIT_KEY     equ 0x13          ; Print "Press any key...", wait, clear screen
-SYS_GET_EQUIP    equ 0x14          ; Returns: AX = equipment word (INT 11h)
-SYS_GET_VIDEO    equ 0x15          ; Returns: AL=mode, AH=cols, BH=page
-SYS_GET_BDA_BYTE equ 0x16          ; BX=BDA offset; Returns: AL=byte value
-SYS_GET_BDA_WORD equ 0x17          ; BX=BDA offset; Returns: AX=word value
-SYS_CPUID        equ 0x18          ; EDI=leaf; Returns: EAX,EBX,ECX,EDX
-SYS_CHECK_CPUID  equ 0x19          ; Returns: AL=1 if CPUID supported, 0 if not
-SYS_GET_EDD      equ 0x1A          ; DL=drive; Returns: EDD info, CF=err
-SYS_GET_IVT      equ 0x1B          ; CL=vector#; Returns: AX=offset, DX=segment
 
 ; =============================================================================
 ; KERNEL HEADER
@@ -87,8 +51,12 @@ kernel_start:
     ; --- Install syscall handler at INT 0x80 ----------------------------------
     call install_syscalls
 
-    ; --- Load SHELL.BIN -------------------------------------------------------
-    call load_shell
+    ; --- Load SHELL.BIN using shared load_mnex subroutine --------------------
+    mov eax, SHELL_PART_OFF         ; Partition-relative sector offset
+    mov bx, SHELL_OFF               ; Load address (segment 0x0000)
+    mov ecx, 'MNEX'                 ; Expected magic signature
+    mov dh, SHELL_MAX_SEC           ; Maximum sector count
+    call load_mnex
     jc .shell_fail
 
     ; --- Transfer control to shell --------------------------------------------
@@ -128,70 +96,68 @@ install_syscalls:
     ret
 
 ; =============================================================================
-; syscall_handler — INT 0x80 dispatcher
+; syscall_handler — INT 0x80 dispatcher (O(1) jump table)
 ;
-; Routes syscalls based on AH function number.  Each handler returns via IRET.
+; Routes syscalls based on AH function number using a jump table instead of
+; a linear comparison chain.  Each handler returns via IRET.
 ; All handlers preserve registers except documented return values.
+;
+; Dispatch uses BX as a scratch register for the table lookup.  BX is
+; saved/restored via a kernel-local memory word, and the handler address
+; is stored there for the indirect jump.  This leaves all registers intact
+; when the handler begins executing.
 ; =============================================================================
 syscall_handler:
-    cmp ah, SYS_PRINT_STRING
-    je .fn_print_string
-    cmp ah, SYS_PRINT_CHAR
-    je .fn_print_char
-    cmp ah, SYS_READ_KEY
-    je .fn_read_key
-    cmp ah, SYS_READ_SECTOR
-    je .fn_read_sector
-    cmp ah, SYS_GET_VERSION
-    je .fn_get_version
-    cmp ah, SYS_CLEAR_SCREEN
-    je .fn_clear_screen
-    cmp ah, SYS_SET_CURSOR
-    je .fn_set_cursor
-    cmp ah, SYS_GET_CURSOR
-    je .fn_get_cursor
-    cmp ah, SYS_CHECK_A20
-    je .fn_check_a20
-    cmp ah, SYS_GET_CONV_MEM
-    je .fn_get_conv_mem
-    cmp ah, SYS_GET_EXT_MEM
-    je .fn_get_ext_mem
-    cmp ah, SYS_GET_E820
-    je .fn_get_e820
-    cmp ah, SYS_REBOOT
-    je .fn_reboot
-    cmp ah, SYS_GET_DRIVE_INFO
-    je .fn_get_drive_info
-    cmp ah, SYS_GET_BIB
-    je .fn_get_bib
-    cmp ah, SYS_PRINT_HEX8
-    je .fn_print_hex8
-    cmp ah, SYS_PRINT_HEX16
-    je .fn_print_hex16
-    cmp ah, SYS_PRINT_DEC16
-    je .fn_print_dec16
-    cmp ah, SYS_WAIT_KEY
-    je .fn_wait_key
-    cmp ah, SYS_GET_EQUIP
-    je .fn_get_equip
-    cmp ah, SYS_GET_VIDEO
-    je .fn_get_video
-    cmp ah, SYS_GET_BDA_BYTE
-    je .fn_get_bda_byte
-    cmp ah, SYS_GET_BDA_WORD
-    je .fn_get_bda_word
-    cmp ah, SYS_CPUID
-    je .fn_cpuid
-    cmp ah, SYS_CHECK_CPUID
-    je .fn_check_cpuid
-    cmp ah, SYS_GET_EDD
-    je .fn_get_edd
-    cmp ah, SYS_GET_IVT
-    je .fn_get_ivt
+    mov [cs:.sc_temp], bx           ; Save BX in kernel data area
 
-    ; Unknown function — set carry flag
+    movzx bx, ah                    ; BX = function number (zero-extended)
+    cmp bx, SYSCALL_MAX
+    ja .sc_unknown
+
+    add bx, bx                      ; BX = function number * 2 (word offset)
+    mov bx, [cs:.sc_table + bx]     ; BX = handler address from jump table
+    xchg bx, [cs:.sc_temp]          ; BX = original value, .sc_temp = handler
+    jmp [cs:.sc_temp]               ; Jump to handler with all regs intact
+
+.sc_unknown:
+    mov bx, [cs:.sc_temp]           ; Restore BX
     stc
     iret
+
+; Temporary storage for syscall dispatch (single-threaded real mode,
+; so no reentrancy concerns — interrupts are masked during INT handlers).
+.sc_temp: dw 0
+
+; --- Syscall jump table (28 entries: 0x00 unused + 0x01–0x1B) ----------------
+.sc_table:
+    dw .sc_unknown          ; 0x00 — unused
+    dw .fn_print_string     ; 0x01 — SYS_PRINT_STRING
+    dw .fn_print_char       ; 0x02 — SYS_PRINT_CHAR
+    dw .fn_read_key         ; 0x03 — SYS_READ_KEY
+    dw .fn_read_sector      ; 0x04 — SYS_READ_SECTOR
+    dw .fn_get_version      ; 0x05 — SYS_GET_VERSION
+    dw .fn_clear_screen     ; 0x06 — SYS_CLEAR_SCREEN
+    dw .fn_set_cursor       ; 0x07 — SYS_SET_CURSOR
+    dw .fn_get_cursor       ; 0x08 — SYS_GET_CURSOR
+    dw .fn_check_a20        ; 0x09 — SYS_CHECK_A20
+    dw .fn_get_conv_mem     ; 0x0A — SYS_GET_CONV_MEM
+    dw .fn_get_ext_mem      ; 0x0B — SYS_GET_EXT_MEM
+    dw .fn_get_e820         ; 0x0C — SYS_GET_E820
+    dw .fn_reboot           ; 0x0D — SYS_REBOOT
+    dw .fn_get_drive_info   ; 0x0E — SYS_GET_DRIVE_INFO
+    dw .fn_get_bib          ; 0x0F — SYS_GET_BIB
+    dw .fn_print_hex8       ; 0x10 — SYS_PRINT_HEX8
+    dw .fn_print_hex16      ; 0x11 — SYS_PRINT_HEX16
+    dw .fn_print_dec16      ; 0x12 — SYS_PRINT_DEC16
+    dw .fn_wait_key         ; 0x13 — SYS_WAIT_KEY
+    dw .fn_get_equip        ; 0x14 — SYS_GET_EQUIP
+    dw .fn_get_video        ; 0x15 — SYS_GET_VIDEO
+    dw .fn_get_bda_byte     ; 0x16 — SYS_GET_BDA_BYTE
+    dw .fn_get_bda_word     ; 0x17 — SYS_GET_BDA_WORD
+    dw .fn_cpuid            ; 0x18 — SYS_CPUID
+    dw .fn_check_cpuid      ; 0x19 — SYS_CHECK_CPUID
+    dw .fn_get_edd          ; 0x1A — SYS_GET_EDD
+    dw .fn_get_ivt          ; 0x1B — SYS_GET_IVT
 
 ; ─── SYS_PRINT_STRING (AH=0x01) ──────────────────────────────────────────────
 ; Input:  DS:SI = pointer to null-terminated string
@@ -249,14 +215,14 @@ syscall_handler:
     push dx
 
     ; Set up the kernel's DAP
-    mov [k_dap_lba], eax
+    mov [dap_lba], eax
     xor ch, ch
-    mov [k_dap_sectors], cx
-    mov [k_dap_buffer], bx
-    mov [k_dap_buffer+2], es
+    mov [dap_sectors], cx
+    mov [dap_buffer], bx
+    mov [dap_buffer+2], es
 
     mov dl, [BIB_DRIVE]
-    mov si, k_dap
+    mov si, dap
     mov ah, 0x42
     int 0x13
 
@@ -635,55 +601,9 @@ syscall_handler:
     iret
 
 ; =============================================================================
-; load_shell — Load SHELL.BIN from disk and verify its magic
-;
-; Output: CF clear on success, CF set on error
+; Shared binary loader (from src/include/load_binary.inc)
 ; =============================================================================
-load_shell:
-    ; Calculate absolute LBA of SHELL.BIN
-    mov eax, [BIB_PART_LBA]
-    add eax, SHELL_PART_OFF
-    mov [k_dap_lba], eax
-
-    ; Load first sector to read header
-    mov word [k_dap_sectors], 1
-    mov word [k_dap_buffer], SHELL_OFF
-    mov word [k_dap_buffer+2], SHELL_SEG
-
-    mov dl, [BIB_DRIVE]
-    mov si, k_dap
-    mov ah, 0x42
-    int 0x13
-    jc .ls_fail
-
-    ; Verify SHELL.BIN magic ('MNEX')
-    cmp dword [SHELL_OFF], 'MNEX'
-    jne .ls_fail
-
-    ; Read sector count from header and reload all sectors
-    mov cx, [SHELL_OFF + 4]
-    test cx, cx
-    jz .ls_fail
-    cmp cx, SHELL_MAX_SEC
-    ja .ls_fail
-
-    mov [k_dap_sectors], cx
-    mov eax, [BIB_PART_LBA]
-    add eax, SHELL_PART_OFF
-    mov [k_dap_lba], eax
-
-    mov dl, [BIB_DRIVE]
-    mov si, k_dap
-    mov ah, 0x42
-    int 0x13
-    jc .ls_fail
-
-    clc                             ; Success
-    ret
-
-.ls_fail:
-    stc
-    ret
+%include "load_binary.inc"
 
 ; =============================================================================
 ; bios_puts — Direct BIOS print (used before/outside syscall context)
@@ -702,17 +622,19 @@ bios_puts:
 ; =============================================================================
 ; DATA
 ; =============================================================================
-msg_shell_fail  db 'KERNEL: No shell', 0
+msg_shell_fail  db 'KERNEL: Load error', 0
 msg_anykey      db 13, 10, '  Press any key...', 0
 
-; --- Kernel's Disk Address Packet (DAP) for INT 13h AH=42h -------------------
-k_dap:
+; --- Disk Address Packet (DAP) for INT 13h AH=42h ----------------------------
+; Used by both load_mnex (during init) and SYS_READ_SECTOR (during runtime).
+; These never run concurrently, so sharing one DAP is safe.
+dap:
     db 0x10, 0
-k_dap_sectors:
-    dw 1
-k_dap_buffer:
-    dw SHELL_OFF, SHELL_SEG
-k_dap_lba:
+dap_sectors:
+    dw 0
+dap_buffer:
+    dw 0, 0
+dap_lba:
     dd 0, 0
 
 ; =============================================================================

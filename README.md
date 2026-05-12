@@ -82,6 +82,12 @@ mini-os/
 │   ├── MNEX-BINARY-FORMAT.md    # Custom binary format spec, toolchain, build pipeline
 │   └── SYSTEM-CALLS.md         # User↔kernel boundary, IVT/IDT/SYSCALL mechanisms
 ├── src/
+│   ├── include/               # Shared constants & subroutines (%include)
+│   │   ├── bib.inc            # Boot Info Block field addresses
+│   │   ├── memory.inc         # Component load addresses
+│   │   ├── disk.inc           # Partition disk layout offsets
+│   │   ├── syscalls.inc       # INT 0x80 syscall function numbers
+│   │   └── load_binary.inc    # Shared MNEX binary loader subroutine
 │   ├── boot/
 │   │   ├── mbr.asm           # MBR — partition table scan + VBR chain-load
 │   │   └── vbr.asm           # VBR — loads LOADER.BIN (2 sectors)

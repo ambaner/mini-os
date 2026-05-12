@@ -28,21 +28,12 @@
 ; Assembled with:  nasm -f bin -o vbr.bin src/boot/vbr.asm
 ; =============================================================================
 
+%include "bib.inc"
+%include "memory.inc"
+%include "disk.inc"
+
 [BITS 16]                           ; 16-bit real mode
 [ORG 0x7C00]                        ; MBR copies us here before jumping
-
-; =============================================================================
-; CONSTANTS
-; =============================================================================
-LOADER_SEG      equ 0x0000          ; Segment for LOADER.BIN load address
-LOADER_OFF      equ 0x0800          ; Offset for LOADER.BIN load address
-LOADER_PART_OFF equ 4               ; Partition-relative sector offset
-LOADER_MAX_SEC  equ 16              ; Maximum sectors for LOADER.BIN
-
-BIB_ADDR        equ 0x0600          ; Boot Info Block base address
-BIB_DRIVE       equ 0x0600          ; 1 byte: boot drive
-BIB_A20         equ 0x0601          ; 1 byte: A20 status (set by loader)
-BIB_PART_LBA    equ 0x0602          ; 4 bytes: partition start LBA
 
 ; =============================================================================
 ; VBR HEADER  (Sector 0 — first 512 bytes)
@@ -78,58 +69,27 @@ vbr_code:
 
     mov byte [BIB_A20], 0           ; Clear A20 status (loader will set it)
 
-    ; --- Calculate absolute LBA of LOADER.BIN --------------------------------
-    ; LOADER.BIN starts at partition offset LOADER_PART_OFF sectors
-    add eax, LOADER_PART_OFF        ; EAX = partition_lba + loader_offset
-    mov [dap_lba], eax              ; Store in DAP for disk read
-
-    ; --- Load LOADER.BIN to 0x0800 ------------------------------------------
-    mov word [dap_sectors], 1       ; First: load just sector 0 (header)
-    mov word [dap_buffer], LOADER_OFF
-    mov word [dap_buffer+2], LOADER_SEG
-
-    mov dl, [BIB_DRIVE]
-    mov si, dap
-    mov ah, 0x42                    ; Extended Read Sectors
-    int 0x13
-    jc .disk_err
-
-    ; --- Verify LOADER.BIN magic ('MNLD') ------------------------------------
-    cmp dword [LOADER_OFF], 'MNLD'
-    jne .bad_loader
-
-    ; --- Read sector count from LOADER.BIN header and reload all sectors -----
-    mov cx, [LOADER_OFF + 4]        ; CX = loader sector count
-    test cx, cx
-    jz .bad_loader
-    cmp cx, LOADER_MAX_SEC
-    ja .bad_loader
-
-    mov [dap_sectors], cx           ; Load all loader sectors
-    mov eax, [BIB_PART_LBA]
-    add eax, LOADER_PART_OFF
-    mov [dap_lba], eax              ; Reset LBA (same as before)
-
-    mov dl, [BIB_DRIVE]
-    mov si, dap
-    mov ah, 0x42
-    int 0x13
-    jc .disk_err
+    ; --- Load LOADER.BIN using shared load_mnex subroutine -------------------
+    mov eax, LOADER_PART_OFF        ; Partition-relative sector offset
+    mov bx, LOADER_OFF              ; Load address (segment 0x0000)
+    mov ecx, 'MNLD'                 ; Expected magic signature
+    mov dh, LOADER_MAX_SEC          ; Maximum sector count
+    call load_mnex
+    jc .load_err
 
     ; --- Jump to LOADER.BIN -------------------------------------------------
     jmp LOADER_SEG:LOADER_OFF       ; Far jump to loader at 0x0000:0x0800
 
-; --- Error handlers ----------------------------------------------------------
-.disk_err:
-    mov si, msg_derr
-    jmp .err_print
-.bad_loader:
-    mov si, msg_noload
-.err_print:
+; --- Error handler -----------------------------------------------------------
+.load_err:
+    mov si, msg_err
     call puts
 .halt:
     cli
     hlt
+
+; --- Shared binary loader (from src/include/load_binary.inc) -----------------
+%include "load_binary.inc"
 
 ; --- Subroutines (minimal, just what VBR needs) ------------------------------
 
@@ -146,8 +106,7 @@ puts:
     ret
 
 ; --- Data --------------------------------------------------------------------
-msg_derr    db 'VBR: Disk err', 0
-msg_noload  db 'VBR: No loader', 0
+msg_err     db 'VBR: Load error', 0
 
 ; --- Disk Address Packet (DAP) for INT 13h AH=42h ---------------------------
 dap:
@@ -155,7 +114,7 @@ dap:
 dap_sectors:
     dw 1                            ; Sectors to read (updated at runtime)
 dap_buffer:
-    dw LOADER_OFF, LOADER_SEG       ; Load to LOADER_SEG:LOADER_OFF
+    dw 0, 0                         ; Buffer address (set by load_mnex)
 dap_lba:
     dd 0, 0                         ; LBA — computed at runtime
 

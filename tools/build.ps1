@@ -44,11 +44,35 @@ $VbrBin     = Join-Path $BuildDir 'vbr.bin'
 $LoaderBin  = Join-Path $BuildDir 'loader.bin'
 $KernelBin  = Join-Path $BuildDir 'kernel.bin'
 $ShellBin   = Join-Path $BuildDir 'shell.bin'
+$IncludeDir = Join-Path $Root 'src\include'
 $RawImg     = Join-Path $BuildDir 'mini-os.img'
 $VhdOut     = Join-Path $BuildDir 'mini-os.vhd'
 
 # ---------- helpers ---------------------------------------------------------
 function Write-Step([string]$msg) { Write-Host "[mini-os] $msg" -ForegroundColor Cyan }
+
+function Build-Binary {
+    param(
+        [string]$Name,
+        [string]$AsmPath,
+        [string]$BinPath,
+        [int]$ExpectedSize = 0    # 0 = no specific size check
+    )
+    Write-Step "Assembling ${Name}..."
+    & $nasm -f bin -I "$IncludeDir/" -o $BinPath $AsmPath
+    if ($LASTEXITCODE -ne 0) { throw "NASM assembly of $Name failed." }
+
+    $size = (Get-Item $BinPath).Length
+    $sectors = [math]::Ceiling($size / 512)
+    Write-Step "  $([System.IO.Path]::GetFileName($BinPath)): $size bytes ($sectors sectors)"
+
+    if ($ExpectedSize -gt 0 -and $size -ne $ExpectedSize) {
+        Write-Warning "$Name is $size bytes (expected $ExpectedSize)."
+    }
+    if (($size % 512) -ne 0) {
+        Write-Warning "$Name size is not a multiple of 512 bytes."
+    }
+}
 
 function Get-NasmPath {
     # 1. On PATH?
@@ -96,50 +120,12 @@ $nasm = Get-NasmPath
 if (-not $nasm) { $nasm = Install-Nasm }
 Write-Step "Using NASM: $nasm"
 
-# ---------- assemble MBR ----------------------------------------------------
-Write-Step 'Assembling MBR...'
-& $nasm -f bin -o $MbrBin $MbrAsm
-if ($LASTEXITCODE -ne 0) { throw 'NASM assembly of MBR failed.' }
-
-$binSize = (Get-Item $MbrBin).Length
-Write-Step "  mbr.bin: $binSize bytes"
-if ($binSize -ne 512) { Write-Warning "MBR is $binSize bytes (expected 512)." }
-
-# ---------- assemble VBR ----------------------------------------------------
-Write-Step 'Assembling VBR...'
-& $nasm -f bin -o $VbrBin $VbrAsm
-if ($LASTEXITCODE -ne 0) { throw 'NASM assembly of VBR failed.' }
-
-$vbrSize = (Get-Item $VbrBin).Length
-Write-Step "  vbr.bin: $vbrSize bytes ($([math]::Ceiling($vbrSize / 512)) sectors)"
-if (($vbrSize % 512) -ne 0) { Write-Warning "VBR size is not a multiple of 512 bytes." }
-
-# ---------- assemble LOADER ------------------------------------------------
-Write-Step 'Assembling LOADER...'
-& $nasm -f bin -o $LoaderBin $LoaderAsm
-if ($LASTEXITCODE -ne 0) { throw 'NASM assembly of LOADER failed.' }
-
-$loaderSize = (Get-Item $LoaderBin).Length
-Write-Step "  loader.bin: $loaderSize bytes ($([math]::Ceiling($loaderSize / 512)) sectors)"
-if (($loaderSize % 512) -ne 0) { Write-Warning "LOADER size is not a multiple of 512 bytes." }
-
-# ---------- assemble SHELL -------------------------------------------------
-Write-Step 'Assembling SHELL...'
-& $nasm -f bin -o $ShellBin $ShellAsm
-if ($LASTEXITCODE -ne 0) { throw 'NASM assembly of SHELL failed.' }
-
-$shellSize = (Get-Item $ShellBin).Length
-Write-Step "  shell.bin: $shellSize bytes ($([math]::Ceiling($shellSize / 512)) sectors)"
-if (($shellSize % 512) -ne 0) { Write-Warning "SHELL size is not a multiple of 512 bytes." }
-
-# ---------- assemble KERNEL ------------------------------------------------
-Write-Step 'Assembling KERNEL...'
-& $nasm -f bin -o $KernelBin $KernelAsm
-if ($LASTEXITCODE -ne 0) { throw 'NASM assembly of KERNEL failed.' }
-
-$kernelSize = (Get-Item $KernelBin).Length
-Write-Step "  kernel.bin: $kernelSize bytes ($([math]::Ceiling($kernelSize / 512)) sectors)"
-if (($kernelSize % 512) -ne 0) { Write-Warning "KERNEL size is not a multiple of 512 bytes." }
+# ---------- assemble all binaries -------------------------------------------
+Build-Binary -Name 'MBR'    -AsmPath $MbrAsm    -BinPath $MbrBin    -ExpectedSize 512
+Build-Binary -Name 'VBR'    -AsmPath $VbrAsm    -BinPath $VbrBin
+Build-Binary -Name 'LOADER' -AsmPath $LoaderAsm -BinPath $LoaderBin
+Build-Binary -Name 'KERNEL' -AsmPath $KernelAsm -BinPath $KernelBin
+Build-Binary -Name 'SHELL'  -AsmPath $ShellAsm  -BinPath $ShellBin
 
 # ---------- create partitioned disk image -----------------------------------
 Write-Step 'Creating partitioned disk image...'

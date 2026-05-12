@@ -27,40 +27,10 @@
 ; Assembled with:  nasm -f bin -o shell.bin src/shell/shell.asm
 ; =============================================================================
 
+%include "syscalls.inc"
+
 [BITS 16]
 [ORG 0x3000]                        ; Kernel loads us here
-
-; =============================================================================
-; SYSCALL FUNCTION NUMBERS  (must match kernel's definitions)
-;
-; These are the function numbers passed in AH before INT 0x80.
-; The kernel dispatches based on AH and performs the actual BIOS/HW access.
-; =============================================================================
-SYS_PRINT_STRING equ 0x01           ; DS:SI = NUL-terminated string -> prints it
-SYS_PRINT_CHAR   equ 0x02           ; AL = character -> prints it
-SYS_READ_KEY     equ 0x03           ; Returns: AH=scancode, AL=ASCII char
-SYS_GET_VERSION  equ 0x05           ; Returns: AH=major, AL=minor
-SYS_CLEAR_SCREEN equ 0x06           ; Clears screen (sets mode 3)
-SYS_GET_CURSOR   equ 0x08           ; Returns: DH=row, DL=col
-SYS_CHECK_A20    equ 0x09           ; Returns: AL=1 if enabled, 0 if not
-SYS_GET_CONV_MEM equ 0x0A           ; Returns: AX=KB of conventional memory
-SYS_GET_EXT_MEM  equ 0x0B           ; Returns: AX=KB of extended memory, CF=err
-SYS_GET_E820     equ 0x0C           ; EBX=continuation, ES:DI=buf; Returns: EBX,CF
-SYS_REBOOT       equ 0x0D           ; Warm reboot (does not return)
-SYS_GET_DRIVE_INFO equ 0x0E         ; Returns drive geometry: CH,CL,DH,DL; CF=err
-SYS_GET_BIB      equ 0x0F           ; Returns: ES:BX = BIB address (0x0600)
-SYS_PRINT_HEX8   equ 0x10           ; AL = byte -> prints two hex digits
-SYS_PRINT_HEX16  equ 0x11           ; AX = word -> prints four hex digits
-SYS_PRINT_DEC16  equ 0x12           ; AX = word -> prints unsigned decimal
-SYS_WAIT_KEY     equ 0x13           ; Shows "Press any key...", waits, clears
-SYS_GET_EQUIP    equ 0x14           ; Returns: AX = equipment word
-SYS_GET_VIDEO    equ 0x15           ; Returns: AL=mode, AH=cols, BH=page
-SYS_GET_BDA_BYTE equ 0x16           ; BX=BDA offset; Returns: AL=byte
-SYS_GET_BDA_WORD equ 0x17           ; BX=BDA offset; Returns: AX=word
-SYS_CPUID        equ 0x18           ; EDI=leaf; Returns: EAX,EBX,ECX,EDX
-SYS_CHECK_CPUID  equ 0x19           ; Returns: AL=1 if CPUID supported
-SYS_GET_EDD      equ 0x1A           ; DL=drive; Returns: BX,AH,CX,CF
-SYS_GET_IVT      equ 0x1B           ; CL=vector#; Returns: AX=offset, DX=segment
 
 ; =============================================================================
 ; SHELL HEADER

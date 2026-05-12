@@ -18,20 +18,12 @@
 ; Assembled with:  nasm -f bin -o loader.bin src/loader/loader.asm
 ; =============================================================================
 
+%include "bib.inc"
+%include "memory.inc"
+%include "disk.inc"
+
 [BITS 16]
 [ORG 0x0800]                        ; VBR loads us here
-
-; =============================================================================
-; CONSTANTS
-; =============================================================================
-KERNEL_SEG      equ 0x0000          ; Segment for KERNEL.BIN load address
-KERNEL_OFF      equ 0x5000          ; Offset for KERNEL.BIN load address
-KERNEL_PART_OFF equ 20              ; Partition-relative sector offset
-KERNEL_MAX_SEC  equ 16              ; Maximum sectors for KERNEL.BIN
-
-BIB_DRIVE       equ 0x0600          ; Boot drive (from VBR)
-BIB_A20         equ 0x0601          ; A20 status (we write this)
-BIB_PART_LBA    equ 0x0602          ; Partition start LBA (from VBR)
 
 ; =============================================================================
 ; LOADER HEADER
@@ -182,62 +174,31 @@ check_a20:
 ; =============================================================================
 ; LOAD KERNEL.BIN
 ;
-; Load KERNEL.BIN from a fixed partition offset to 0x5000, verify its magic,
-; and jump to it.
+; Load KERNEL.BIN from a fixed partition offset to 0x5000 using the shared
+; load_mnex subroutine, then jump to it.
 ; =============================================================================
 load_kernel:
-    ; Calculate absolute LBA of KERNEL.BIN
-    mov eax, [BIB_PART_LBA]
-    add eax, KERNEL_PART_OFF        ; EAX = partition_lba + kernel_offset
-    mov [dap_lba], eax
-
-    ; Load first sector to read header
-    mov word [dap_sectors], 1
-    mov word [dap_buffer], KERNEL_OFF
-    mov word [dap_buffer+2], KERNEL_SEG
-
-    mov dl, [BIB_DRIVE]
-    mov si, dap
-    mov ah, 0x42
-    int 0x13
-    jc .disk_err
-
-    ; Verify KERNEL.BIN magic ('MNKN')
-    cmp dword [KERNEL_OFF], 'MNKN'
-    jne .bad_kernel
-
-    ; Read sector count from kernel header and reload all sectors
-    mov cx, [KERNEL_OFF + 4]        ; CX = kernel sector count
-    test cx, cx
-    jz .bad_kernel
-    cmp cx, KERNEL_MAX_SEC
-    ja .bad_kernel
-
-    mov [dap_sectors], cx
-    mov eax, [BIB_PART_LBA]
-    add eax, KERNEL_PART_OFF
-    mov [dap_lba], eax              ; Reset LBA
-
-    mov dl, [BIB_DRIVE]
-    mov si, dap
-    mov ah, 0x42
-    int 0x13
-    jc .disk_err
+    ; Load KERNEL.BIN using shared load_mnex subroutine
+    mov eax, KERNEL_PART_OFF        ; Partition-relative sector offset
+    mov bx, KERNEL_OFF              ; Load address (segment 0x0000)
+    mov ecx, 'MNKN'                 ; Expected magic signature
+    mov dh, KERNEL_MAX_SEC          ; Maximum sector count
+    call load_mnex
+    jc .load_err
 
     ; Jump to KERNEL.BIN
     jmp KERNEL_SEG:KERNEL_OFF       ; Far jump to kernel at 0x0000:0x5000
 
-; --- Error handlers ----------------------------------------------------------
-.disk_err:
-    mov si, msg_derr
-    jmp .err_print
-.bad_kernel:
-    mov si, msg_nokernel
-.err_print:
+; --- Error handler -----------------------------------------------------------
+.load_err:
+    mov si, msg_err
     call puts
 .halt:
     cli
     hlt
+
+; --- Shared binary loader (from src/include/load_binary.inc) -----------------
+%include "load_binary.inc"
 
 ; ---------------------------------------------------------------------------
 ; puts — Print NUL-terminated string at DS:SI (minimal, for error messages)
@@ -256,18 +217,17 @@ puts:
 ; =============================================================================
 ; DATA
 ; =============================================================================
-msg_derr    db 'LOADER: Disk err', 0
-msg_nokernel db 'LOADER: No kernel', 0
+msg_err     db 'LOADER: Load error', 0
 
 ; --- Disk Address Packet (DAP) for INT 13h AH=42h ---------------------------
 dap:
     db 0x10, 0                      ; Size = 16, reserved = 0
 dap_sectors:
-    dw 1                            ; Sectors to read
+    dw 0                            ; Sectors to read (set by load_mnex)
 dap_buffer:
-    dw KERNEL_OFF, KERNEL_SEG       ; Load address
+    dw 0, 0                         ; Buffer address (set by load_mnex)
 dap_lba:
-    dd 0, 0                         ; LBA — computed at runtime
+    dd 0, 0                         ; LBA (set by load_mnex)
 
 ; =============================================================================
 ; PADDING — fill to 2 sectors (1024 bytes)
