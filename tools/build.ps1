@@ -1,13 +1,16 @@
 <#
 .SYNOPSIS
-    Build script for mini-os.  Assembles MBR + VBR, creates a partitioned VHD.
+    Build script for mini-os.  Assembles MBR + VBR + LOADER + KERNEL + SHELL, creates a partitioned VHD.
 
 .DESCRIPTION
     1. Downloads NASM if not found on PATH or in tools/nasm/.
-    2. Assembles src/boot/mbr.asm -> build/boot/mbr.bin
-    3. Assembles src/boot/vbr.asm -> build/boot/vbr.bin
-    4. Creates a partitioned raw disk image via tools/create-disk.ps1
-    5. Wraps the raw image as a VHD via tools/create-vhd.ps1
+    2. Assembles src/boot/mbr.asm   -> build/boot/mbr.bin
+    3. Assembles src/boot/vbr.asm   -> build/boot/vbr.bin
+    4. Assembles src/loader/loader.asm -> build/boot/loader.bin
+    5. Assembles src/kernel/kernel.asm -> build/boot/kernel.bin
+    6. Assembles src/shell/shell.asm   -> build/boot/shell.bin
+    7. Creates a partitioned raw disk image via tools/create-disk.ps1
+    8. Wraps the raw image as a VHD via tools/create-vhd.ps1
 
 .PARAMETER Clean
     Remove the build/ directory before building.
@@ -34,10 +37,12 @@ $SrcBoot    = Join-Path $Root 'src\boot'
 $MbrAsm     = Join-Path $SrcBoot 'mbr.asm'
 $VbrAsm     = Join-Path $SrcBoot 'vbr.asm'
 $LoaderAsm  = Join-Path $Root 'src\loader\loader.asm'
+$KernelAsm  = Join-Path $Root 'src\kernel\kernel.asm'
 $ShellAsm   = Join-Path $Root 'src\shell\shell.asm'
 $MbrBin     = Join-Path $BuildDir 'mbr.bin'
 $VbrBin     = Join-Path $BuildDir 'vbr.bin'
 $LoaderBin  = Join-Path $BuildDir 'loader.bin'
+$KernelBin  = Join-Path $BuildDir 'kernel.bin'
 $ShellBin   = Join-Path $BuildDir 'shell.bin'
 $RawImg     = Join-Path $BuildDir 'mini-os.img'
 $VhdOut     = Join-Path $BuildDir 'mini-os.vhd'
@@ -127,10 +132,19 @@ $shellSize = (Get-Item $ShellBin).Length
 Write-Step "  shell.bin: $shellSize bytes ($([math]::Ceiling($shellSize / 512)) sectors)"
 if (($shellSize % 512) -ne 0) { Write-Warning "SHELL size is not a multiple of 512 bytes." }
 
+# ---------- assemble KERNEL ------------------------------------------------
+Write-Step 'Assembling KERNEL...'
+& $nasm -f bin -o $KernelBin $KernelAsm
+if ($LASTEXITCODE -ne 0) { throw 'NASM assembly of KERNEL failed.' }
+
+$kernelSize = (Get-Item $KernelBin).Length
+Write-Step "  kernel.bin: $kernelSize bytes ($([math]::Ceiling($kernelSize / 512)) sectors)"
+if (($kernelSize % 512) -ne 0) { Write-Warning "KERNEL size is not a multiple of 512 bytes." }
+
 # ---------- create partitioned disk image -----------------------------------
 Write-Step 'Creating partitioned disk image...'
 $DiskScript = Join-Path $ToolsDir 'create-disk.ps1'
-& $DiskScript -MbrPath $MbrBin -VbrPath $VbrBin -LoaderPath $LoaderBin -ShellPath $ShellBin -OutputPath $RawImg -SizeMB $DiskSizeMB
+& $DiskScript -MbrPath $MbrBin -VbrPath $VbrBin -LoaderPath $LoaderBin -KernelPath $KernelBin -ShellPath $ShellBin -OutputPath $RawImg -SizeMB $DiskSizeMB
 
 # ---------- create VHD ------------------------------------------------------
 Write-Step 'Creating VHD...'

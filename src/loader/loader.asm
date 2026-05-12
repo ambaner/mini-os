@@ -3,8 +3,8 @@
 ;
 ; Loaded by the VBR into memory at 0x0800.  Responsibilities:
 ;   1. Enable the A20 gate (3 fallback methods)
-;   2. Load SHELL.BIN from a fixed partition offset into memory at 0x3000
-;   3. Transfer control to the shell
+;   2. Load KERNEL.BIN from a fixed partition offset into memory at 0x5000
+;   3. Transfer control to the kernel
 ;
 ; The Boot Info Block (BIB) at 0x0600 is populated by the VBR:
 ;   0x0600: boot_drive  (1 byte)
@@ -24,10 +24,10 @@
 ; =============================================================================
 ; CONSTANTS
 ; =============================================================================
-SHELL_SEG       equ 0x0000          ; Segment for SHELL.BIN load address
-SHELL_OFF       equ 0x3000          ; Offset for SHELL.BIN load address
-SHELL_PART_OFF  equ 20              ; Partition-relative sector offset
-SHELL_MAX_SEC   equ 32              ; Maximum sectors for SHELL.BIN
+KERNEL_SEG      equ 0x0000          ; Segment for KERNEL.BIN load address
+KERNEL_OFF      equ 0x5000          ; Offset for KERNEL.BIN load address
+KERNEL_PART_OFF equ 20              ; Partition-relative sector offset
+KERNEL_MAX_SEC  equ 16              ; Maximum sectors for KERNEL.BIN
 
 BIB_DRIVE       equ 0x0600          ; Boot drive (from VBR)
 BIB_A20         equ 0x0601          ; A20 status (we write this)
@@ -109,11 +109,11 @@ enable_a20:
 
     ; --- All methods failed --------------------------------------------------
     mov byte [BIB_A20], 0           ; Record failure
-    jmp load_shell
+    jmp load_kernel
 
 .a20_ok:
     mov byte [BIB_A20], 1           ; Record success
-    jmp load_shell
+    jmp load_kernel
 
 ; --- A20 helper: wait for 8042 input buffer to be empty ----------------------
 .a20_wait_cmd:
@@ -180,21 +180,21 @@ check_a20:
     ret
 
 ; =============================================================================
-; LOAD SHELL.BIN
+; LOAD KERNEL.BIN
 ;
-; Load SHELL.BIN from a fixed partition offset to 0x3000, verify its magic,
+; Load KERNEL.BIN from a fixed partition offset to 0x5000, verify its magic,
 ; and jump to it.
 ; =============================================================================
-load_shell:
-    ; Calculate absolute LBA of SHELL.BIN
+load_kernel:
+    ; Calculate absolute LBA of KERNEL.BIN
     mov eax, [BIB_PART_LBA]
-    add eax, SHELL_PART_OFF         ; EAX = partition_lba + shell_offset
+    add eax, KERNEL_PART_OFF        ; EAX = partition_lba + kernel_offset
     mov [dap_lba], eax
 
     ; Load first sector to read header
     mov word [dap_sectors], 1
-    mov word [dap_buffer], SHELL_OFF
-    mov word [dap_buffer+2], SHELL_SEG
+    mov word [dap_buffer], KERNEL_OFF
+    mov word [dap_buffer+2], KERNEL_SEG
 
     mov dl, [BIB_DRIVE]
     mov si, dap
@@ -202,20 +202,20 @@ load_shell:
     int 0x13
     jc .disk_err
 
-    ; Verify SHELL.BIN magic ('MNSH')
-    cmp dword [SHELL_OFF], 'MNSH'
-    jne .bad_shell
+    ; Verify KERNEL.BIN magic ('MNKN')
+    cmp dword [KERNEL_OFF], 'MNKN'
+    jne .bad_kernel
 
-    ; Read sector count from shell header and reload all sectors
-    mov cx, [SHELL_OFF + 4]         ; CX = shell sector count
+    ; Read sector count from kernel header and reload all sectors
+    mov cx, [KERNEL_OFF + 4]        ; CX = kernel sector count
     test cx, cx
-    jz .bad_shell
-    cmp cx, SHELL_MAX_SEC
-    ja .bad_shell
+    jz .bad_kernel
+    cmp cx, KERNEL_MAX_SEC
+    ja .bad_kernel
 
     mov [dap_sectors], cx
     mov eax, [BIB_PART_LBA]
-    add eax, SHELL_PART_OFF
+    add eax, KERNEL_PART_OFF
     mov [dap_lba], eax              ; Reset LBA
 
     mov dl, [BIB_DRIVE]
@@ -224,15 +224,15 @@ load_shell:
     int 0x13
     jc .disk_err
 
-    ; Jump to SHELL.BIN
-    jmp SHELL_SEG:SHELL_OFF         ; Far jump to shell at 0x0000:0x3000
+    ; Jump to KERNEL.BIN
+    jmp KERNEL_SEG:KERNEL_OFF       ; Far jump to kernel at 0x0000:0x5000
 
 ; --- Error handlers ----------------------------------------------------------
 .disk_err:
     mov si, msg_derr
     jmp .err_print
-.bad_shell:
-    mov si, msg_noshell
+.bad_kernel:
+    mov si, msg_nokernel
 .err_print:
     call puts
 .halt:
@@ -257,7 +257,7 @@ puts:
 ; DATA
 ; =============================================================================
 msg_derr    db 'LOADER: Disk err', 0
-msg_noshell db 'LOADER: No shell', 0
+msg_nokernel db 'LOADER: No kernel', 0
 
 ; --- Disk Address Packet (DAP) for INT 13h AH=42h ---------------------------
 dap:
@@ -265,7 +265,7 @@ dap:
 dap_sectors:
     dw 1                            ; Sectors to read
 dap_buffer:
-    dw SHELL_OFF, SHELL_SEG         ; Load address
+    dw KERNEL_OFF, KERNEL_SEG       ; Load address
 dap_lba:
     dd 0, 0                         ; LBA — computed at runtime
 

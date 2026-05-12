@@ -1,8 +1,9 @@
 # mini-os
 
-A minimalistic operating system, built from scratch — currently at **v0.4.0**.
+A minimalistic operating system, built from scratch — currently at **v0.5.0**.
 MBR reads the partition table, chain-loads a VBR which loads a stage-2 loader
-(A20 gate enablement), which loads the interactive shell (`mnos:\>`) with
+(A20 gate enablement), which loads a 16-bit kernel (KERNEL.BIN) that provides
+an INT 0x80 syscall interface, which loads the interactive shell (`mnos:\>`) with
 commands for system info, CPU details, memory diagnostics, version info, and more.
 
 ![mini-os booting in Hyper-V](doc/booted.gif)
@@ -24,7 +25,7 @@ build.bat
 
 The build script will:
 1. Download NASM into `tools/nasm/` if not already installed
-2. Assemble MBR, VBR, LOADER, and SHELL binaries
+2. Assemble MBR, VBR, LOADER, KERNEL, and SHELL binaries
 3. Create `build/boot/mini-os.vhd` (16 MB fixed VHD with partition table)
 
 ## Running in Hyper-V
@@ -43,7 +44,7 @@ The script will prompt for a VM name and location (defaults are fine), then crea
 You should see the MBR banner and partition table info, then the shell:
 
 ```
-  MNOS v0.4.0
+  MNOS v0.5.0
 
 mnos:\>
 ```
@@ -77,15 +78,19 @@ mini-os/
 │   ├── DESIGN.md             # Architecture & design document
 │   ├── BOOT-LAYOUT-RATIONALE.md  # Boot chain design rationale (DOS/Windows/Linux comparisons)
 │   ├── MEMORY-LAYOUT.md      # Memory map, stack analysis, protected-mode roadmap
-│   └── CPU-MODES-AND-TRANSITIONS.md  # 16→32→64-bit journey, BIOS vs UEFI
+│   ├── CPU-MODES-AND-TRANSITIONS.md  # 16→32→64-bit journey, BIOS vs UEFI
+│   ├── MNEX-BINARY-FORMAT.md    # Custom binary format spec, toolchain, build pipeline
+│   └── SYSTEM-CALLS.md         # User↔kernel boundary, IVT/IDT/SYSCALL mechanisms
 ├── src/
 │   ├── boot/
 │   │   ├── mbr.asm           # MBR — partition table scan + VBR chain-load
 │   │   └── vbr.asm           # VBR — loads LOADER.BIN (2 sectors)
 │   ├── loader/
-│   │   └── loader.asm        # Stage-2 loader — A20 gate, loads SHELL.BIN
+│   │   └── loader.asm        # Stage-2 loader — A20 gate, loads KERNEL.BIN
+│   ├── kernel/
+│   │   └── kernel.asm        # 16-bit kernel — INT 0x80 syscall interface
 │   └── shell/
-│       └── shell.asm         # Interactive shell + all commands
+│       └── shell.asm         # Interactive shell (user-mode MNEX executable)
 ├── tools/
 │   ├── build.ps1             # Build logic (called by build.bat)
 │   ├── create-disk.ps1       # Partitioned raw disk image creator
@@ -98,6 +103,7 @@ mini-os/
 │       ├── mbr.bin
 │       ├── vbr.bin
 │       ├── loader.bin
+│       ├── kernel.bin
 │       ├── shell.bin
 │       ├── mini-os.img
 │       └── mini-os.vhd
@@ -130,6 +136,15 @@ Additional deep-dive documents:
   GDT, IDT, paging, hardware drivers (VGA, keyboard, ATA), PIC remapping, and
   a detailed BIOS vs UEFI comparison.
 
+- **[doc/MNEX-BINARY-FORMAT.md](doc/MNEX-BINARY-FORMAT.md)** — The MNOS Executable format
+  specification: unified 32-byte MNEX headers for all binaries (16/32/64-bit),
+  NASM+Clang toolchain rationale, complete build pipeline, and C kernel code examples.
+
+- **[doc/SYSTEM-CALLS.md](doc/SYSTEM-CALLS.md)** — How user-mode code talks to the kernel.
+  Covers the IVT (16-bit), IDT with ring transitions (32-bit), and SYSCALL/SYSRET
+  (64-bit). Includes complete handler code, Windows/Linux comparisons, and the
+  mini-os syscall table.
+
 ## Version History
 
 Each version is a tagged release you can checkout to see the project at that stage.
@@ -145,6 +160,7 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.2.7` | **`ver` + CPU/EDD sysinfo** | Version command, CPUID details page, EDD disk info, sysinfo now 5 pages |
 | `v0.3.0` | **A20 gate enablement** | VBR enables A20 at boot (BIOS/8042/Fast A20 fallbacks), full memory access above 1 MB |
 | `v0.4.0` | **Three-stage boot chain** | VBR → LOADER.BIN → SHELL.BIN split; A20 in loader, shell as separate binary, BIB at 0x0600 |
+| `v0.5.0` | **16-bit Kernel + Syscalls** | KERNEL.BIN with INT 0x80 syscall interface; shell refactored to user-mode MNEX executable |
 
 ```cmd
 git checkout v0.1.0      # see the project at any prior milestone

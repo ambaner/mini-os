@@ -7,10 +7,11 @@ architecture. The project is educational — designed so anyone can clone the re
 build a bootable disk image, and run it in a Hyper-V virtual machine with no prior
 OS-development experience.
 
-The current milestone is **M4: Three-Stage Boot Chain** — the MBR chain-loads a
+The current milestone is **M5: 16-bit Kernel + Syscall Interface** — the MBR chain-loads a
 minimal VBR, which loads a stage-2 loader (LOADER.BIN) that enables A20, which
-loads an interactive shell (SHELL.BIN) with commands for system info, CPU details,
-memory diagnostics, and version info.
+loads a 16-bit kernel (KERNEL.BIN) that installs an INT 0x80 syscall handler and
+loads the interactive shell (SHELL.BIN) — all shell hardware access goes through
+kernel syscalls.
 
 ### Design Principles
 
@@ -96,6 +97,15 @@ memory diagnostics, and version info.
                             │ LOADER.BIN │
                             │ Enable A20 │
                             │ (3 methods)│
+                            │Load KERNEL │
+                            │ to 0x5000  │
+                            └─────┬──────┘
+                                  │
+                                  v
+                            ┌────────────┐
+                            │ KERNEL.BIN │
+                            │Install INT │
+                            │   0x80     │
                             │ Load SHELL │
                             │ to 0x3000  │
                             └─────┬──────┘
@@ -104,8 +114,8 @@ memory diagnostics, and version info.
                             ┌────────────┐
                             │ SHELL.BIN  │
                             │  mnos:\>   │
-                            │  (sysinfo, │
-                            │  help...)  │
+                            │ (via INT   │
+                            │   0x80)    │
                             └────────────┘
 ```
 
@@ -121,7 +131,8 @@ memory diagnostics, and version info.
 | `0x0000:0x0400` – `0x0000:0x04FF` | BIOS Data Area (BDA) |
 | `0x0000:0x0600` – `0x0000:0x060F` | **Boot Info Block (BIB)** — shared parameters |
 | `0x0000:0x0800` – `0x0000:0x27FF` | **LOADER.BIN** (8 KB max) |
-| `0x0000:0x3000` – `0x0000:0x6FFF` | **SHELL.BIN** (16 KB max) |
+| `0x0000:0x3000` – `0x0000:0x4FFF` | **SHELL.BIN** (8 KB max, loaded by kernel) |
+| `0x0000:0x5000` – `0x0000:0x6FFF` | **KERNEL.BIN** (8 KB max, 4 sectors used) |
 | `0x0000:0x7C00` – `0x0000:0x7FFF` | **VBR** (2 sectors, boot-time only) |
 | `0x0000:0x7BFE` ↓ | Stack (grows downward from 0x7C00) |
 | `0x0000:0x7E00` – `0x0000:0x9DFF` | VBR load buffer (MBR uses this temporarily) |
@@ -619,3 +630,5 @@ This document will be updated as the project evolves. Planned milestones:
 - [Boot Layout Design Rationale](BOOT-LAYOUT-RATIONALE.md) — why three stages, DOS/Windows/Linux comparisons, LBA gap analysis
 - [Memory Layout Design Document](MEMORY-LAYOUT.md) — exhaustive memory map, stack analysis, A20/protected mode roadmap
 - [CPU Modes and Transitions](CPU-MODES-AND-TRANSITIONS.md) — 16→32→64-bit journey, GDT/IDT/paging, hardware drivers, BIOS vs UEFI
+- [MNEX Binary Format & Toolchain](MNEX-BINARY-FORMAT.md) — custom binary format spec, NASM+Clang toolchain, build pipeline, header layout
+- [System Calls](SYSTEM-CALLS.md) — user↔kernel boundary, IVT/IDT/SYSCALL mechanisms, ring transitions, syscall table

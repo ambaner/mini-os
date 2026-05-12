@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.5.0] — 2026-05-11
+
+### Added
+- **16-bit kernel** (`KERNEL.BIN`) — loaded by LOADER at 0x5000 (partition offset 20),
+  installs an INT 0x80 syscall handler with 27 functions wrapping all BIOS services
+- **INT 0x80 syscall interface** — shell no longer makes direct BIOS calls; all
+  hardware access goes through kernel syscalls (AH = function number)
+- **CPUID syscall (0x18)** — leaf passed via EDI to avoid conflict with AH dispatch byte
+- **MNKN magic** — kernel binary self-identifies with 'MNKN' header (4 sectors / 2 KB)
+
+### Changed
+- Boot chain extended: MBR → VBR → LOADER → **KERNEL** → SHELL
+- LOADER now loads KERNEL.BIN (was SHELL.BIN); kernel loads SHELL.BIN
+- Shell refactored to pure **user-mode executable** — magic changed from MNSH to MNEX
+- All direct BIOS calls in shell replaced with INT 0x80 syscalls
+- Disk layout: kernel at partition offset 20, shell moved to partition offset 36
+- build.ps1 assembles 5 binaries: MBR (512 B), VBR (1 KB), LOADER (1 KB),
+  KERNEL (2 KB), SHELL (5 KB)
+- create-disk.ps1 updated with new `-KernelPath` parameter
+- Memory layout: SHELL.BIN at 0x3000 (8 KB max), KERNEL.BIN at 0x5000–0x57FF
+- Version banner updated to v0.5.0
+
 ## [0.4.0] — 2026-05-11
 
 ### Added

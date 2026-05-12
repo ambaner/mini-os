@@ -22,7 +22,8 @@
 ; Partition disk layout:
 ;   Offset 0:  VBR         (2 sectors)
 ;   Offset 4:  LOADER.BIN  (up to 16 sectors)
-;   Offset 20: SHELL.BIN   (up to 32 sectors)
+;   Offset 20: KERNEL.BIN  (up to 16 sectors)
+;   Offset 36: SHELL.BIN   (up to 32 sectors)
 ;
 ; Assembled with:  nasm -f bin -o vbr.bin src/boot/vbr.asm
 ; =============================================================================

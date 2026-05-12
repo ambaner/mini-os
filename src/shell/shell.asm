@@ -1,16 +1,19 @@
 ; =============================================================================
-; Mini-OS Shell (SHELL.BIN) - Interactive Command Shell
+; Mini-OS Shell (SHELL.BIN) - Interactive Command Shell (User-Mode Executable)
 ;
-; Loaded by LOADER.BIN into memory at 0x3000.  Provides the interactive
+; Loaded by KERNEL.BIN into memory at 0x3000.  Provides the interactive
 ; command-line interface for mini-os.
 ;
-; The Boot Info Block (BIB) at 0x0600 is populated by earlier boot stages:
-;   0x0600: boot_drive  (1 byte)  — BIOS drive number
-;   0x0601: a20_status  (1 byte)  — A20 gate result (1=enabled, 0=failed)
-;   0x0602: part_lba    (4 bytes) — partition start LBA
+; This is a user-mode executable (MNEX).  ALL hardware access goes through
+; the kernel's INT 0x80 syscall interface — no direct BIOS calls or port I/O.
+;
+; The Boot Info Block (BIB) is obtained via SYS_GET_BIB (not hard-coded).
+;   Offset 0: boot_drive  (1 byte)  — BIOS drive number
+;   Offset 1: a20_status  (1 byte)  — A20 gate result (1=enabled, 0=failed)
+;   Offset 2: part_lba    (4 bytes) — partition start LBA
 ;
 ; Header layout (first 6 bytes):
-;   Offset 0: 'MNSH'   Magic identifier (4 bytes)
+;   Offset 0: 'MNEX'   Magic identifier (4 bytes)  — user-mode executable
 ;   Offset 4: dw N     Shell size in sectors
 ;
 ; Available commands:
@@ -25,44 +28,69 @@
 ; =============================================================================
 
 [BITS 16]
-[ORG 0x3000]                        ; Loader loads us here
+[ORG 0x3000]                        ; Kernel loads us here
 
 ; =============================================================================
-; CONSTANTS
+; SYSCALL FUNCTION NUMBERS  (must match kernel's definitions)
+;
+; These are the function numbers passed in AH before INT 0x80.
+; The kernel dispatches based on AH and performs the actual BIOS/HW access.
 ; =============================================================================
-BIB_DRIVE       equ 0x0600          ; Boot drive (from VBR)
-BIB_A20         equ 0x0601          ; A20 status (from loader)
-BIB_PART_LBA    equ 0x0602          ; Partition start LBA (from VBR)
+SYS_PRINT_STRING equ 0x01           ; DS:SI = NUL-terminated string -> prints it
+SYS_PRINT_CHAR   equ 0x02           ; AL = character -> prints it
+SYS_READ_KEY     equ 0x03           ; Returns: AH=scancode, AL=ASCII char
+SYS_GET_VERSION  equ 0x05           ; Returns: AH=major, AL=minor
+SYS_CLEAR_SCREEN equ 0x06           ; Clears screen (sets mode 3)
+SYS_GET_CURSOR   equ 0x08           ; Returns: DH=row, DL=col
+SYS_CHECK_A20    equ 0x09           ; Returns: AL=1 if enabled, 0 if not
+SYS_GET_CONV_MEM equ 0x0A           ; Returns: AX=KB of conventional memory
+SYS_GET_EXT_MEM  equ 0x0B           ; Returns: AX=KB of extended memory, CF=err
+SYS_GET_E820     equ 0x0C           ; EBX=continuation, ES:DI=buf; Returns: EBX,CF
+SYS_REBOOT       equ 0x0D           ; Warm reboot (does not return)
+SYS_GET_DRIVE_INFO equ 0x0E         ; Returns drive geometry: CH,CL,DH,DL; CF=err
+SYS_GET_BIB      equ 0x0F           ; Returns: ES:BX = BIB address (0x0600)
+SYS_PRINT_HEX8   equ 0x10           ; AL = byte -> prints two hex digits
+SYS_PRINT_HEX16  equ 0x11           ; AX = word -> prints four hex digits
+SYS_PRINT_DEC16  equ 0x12           ; AX = word -> prints unsigned decimal
+SYS_WAIT_KEY     equ 0x13           ; Shows "Press any key...", waits, clears
+SYS_GET_EQUIP    equ 0x14           ; Returns: AX = equipment word
+SYS_GET_VIDEO    equ 0x15           ; Returns: AL=mode, AH=cols, BH=page
+SYS_GET_BDA_BYTE equ 0x16           ; BX=BDA offset; Returns: AL=byte
+SYS_GET_BDA_WORD equ 0x17           ; BX=BDA offset; Returns: AX=word
+SYS_CPUID        equ 0x18           ; EDI=leaf; Returns: EAX,EBX,ECX,EDX
+SYS_CHECK_CPUID  equ 0x19           ; Returns: AL=1 if CPUID supported
+SYS_GET_EDD      equ 0x1A           ; DL=drive; Returns: BX,AH,CX,CF
+SYS_GET_IVT      equ 0x1B           ; CL=vector#; Returns: AX=offset, DX=segment
 
 ; =============================================================================
 ; SHELL HEADER
 ; =============================================================================
-shell_magic     db 'MNSH'           ; Magic identifier
+shell_magic     db 'MNEX'           ; Magic identifier — user-mode executable
 shell_sectors   dw 10               ; Shell size in sectors (updated as needed)
 
 ; =============================================================================
-; SHELL - Main command loop
+; SHELL INIT
 ;
-; 1. Clear screen
-; 2. Print banner (version string)
-; 3. Show prompt "mnos:\>"
-; 4. Read a line of input into cmd_buf
-; 5. Match against known commands, dispatch or print error
-; 6. After command completes, go back to step 3
+; 1. Clear screen via syscall
+; 2. Print banner
+; 3. Fall through to prompt loop
 ; =============================================================================
 shell_init:
-    ; Clear screen (set video mode 3 = 80x25 color text)
-    mov ax, 0x0003
-    int 0x10
+    ; Clear screen via kernel syscall (sets video mode 3 = 80x25 color text)
+    mov ah, SYS_CLEAR_SCREEN
+    int 0x80
 
-    ; Print banner
+    ; Print banner via kernel syscall
     mov si, msg_banner
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
 ; --- Prompt loop (returns here after each command) ---------------------------
 shell_prompt:
+    ; Print the shell prompt
     mov si, msg_prompt
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
     ; Read a line of user input into cmd_buf (up to 31 chars)
     call readline
@@ -108,13 +136,16 @@ shell_prompt:
     call strcmp
     je cmd_reboot
 
-    ; Unknown command
+    ; Unknown command — print error and re-prompt
     mov si, msg_unknown
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     mov si, cmd_buf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     jmp shell_prompt
 
 ; =============================================================================
@@ -126,11 +157,12 @@ cmd_cls:
 
 ; =============================================================================
 ; COMMAND: reboot
-; Perform a warm reboot by jumping to the BIOS reset vector.
+; Perform a warm reboot via kernel syscall.
+; No direct memory writes — the kernel handles the reset vector.
 ; =============================================================================
 cmd_reboot:
-    mov word [0x0472], 0x1234       ; Warm-reboot flag
-    jmp 0xFFFF:0x0000               ; Jump to BIOS reset entry point
+    mov ah, SYS_REBOOT              ; Ask kernel to warm-reboot
+    int 0x80                        ; Does not return
 
 ; =============================================================================
 ; COMMAND: help
@@ -138,7 +170,8 @@ cmd_reboot:
 ; =============================================================================
 cmd_help:
     mov si, msg_help_text
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     jmp shell_prompt
 
 ; =============================================================================
@@ -147,123 +180,169 @@ cmd_help:
 ; =============================================================================
 cmd_ver:
     mov si, msg_ver_text
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     jmp shell_prompt
 
 ; =============================================================================
 ; COMMAND: mem
-; Display detailed memory information.
+; Display detailed memory information using kernel syscalls.
 ; =============================================================================
 cmd_mem:
     mov si, msg_mem_hdr
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    ; --- Conventional memory (INT 12h) ---------------------------------------
+    ; --- Conventional memory (SYS_GET_CONV_MEM) ------------------------------
     mov si, msg_conv_mem
-    call puts
-    int 0x12                        ; AX = conventional memory in KB
-    call print_dec16
-    mov si, msg_kb
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    ; --- Extended memory (INT 15h AH=88h) ------------------------------------
-    mov si, msg_ext_mem
-    call puts
-    mov ah, 0x88
-    int 0x15
-    jc .mem_no_ext
-    call print_dec16
+    mov ah, SYS_GET_CONV_MEM        ; Returns AX = conventional KB
+    int 0x80
+    mov ah, SYS_PRINT_DEC16         ; Print AX as decimal
+    int 0x80
+
     mov si, msg_kb
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    ; --- Extended memory (SYS_GET_EXT_MEM) -----------------------------------
+    mov si, msg_ext_mem
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    mov ah, SYS_GET_EXT_MEM         ; Returns AX = extended KB, CF=err
+    int 0x80
+    jc .mem_no_ext
+
+    mov ah, SYS_PRINT_DEC16         ; Print AX as decimal
+    int 0x80
+    mov si, msg_kb
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     jmp .mem_a20
 
 .mem_no_ext:
     mov si, msg_na
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
 .mem_a20:
-    ; --- A20 gate status (from BIB, set by loader) ---------------------------
+    ; --- A20 gate status (from BIB via syscall) ------------------------------
     mov si, msg_a20
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    cmp byte [BIB_A20], 1
+    ; Get BIB pointer via syscall (not hard-coded address)
+    mov ah, SYS_GET_BIB             ; Returns ES:BX = BIB base
+    int 0x80
+    ; BIB+1 = a20_status byte
+    cmp byte [es:bx+1], 1
     je .a20_show_on
+
     mov si, msg_a20_off
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     jmp .a20_verify
 
 .a20_show_on:
     mov si, msg_a20_on
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
 .a20_verify:
-    ; Live verification — re-test wrap-around
+    ; Live A20 verification via kernel syscall
     mov si, msg_a20_live
-    call puts
-    call check_a20
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    mov ah, SYS_CHECK_A20           ; Returns AL=1 if enabled, 0 if not
+    int 0x80
+    test al, al
     jnz .a20_live_on
+
     mov si, msg_a20_off_short
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     jmp .a20_section_done
+
 .a20_live_on:
     mov si, msg_a20_on_short
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
 .a20_section_done:
 
     ; --- Real-mode memory layout ---------------------------------------------
     mov si, msg_layout_hdr
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     mov si, msg_layout
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    ; --- E820 Memory Map -----------------------------------------------------
+    ; --- E820 Memory Map via SYS_GET_E820 ------------------------------------
     mov si, msg_e820_hdr
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    xor ebx, ebx
-    mov di, e820_buf
+    xor ebx, ebx                    ; EBX = 0 (start of enumeration)
+    mov di, e820_buf                ; ES:DI = buffer for one E820 entry
 
 .mem_e820_loop:
-    mov eax, 0x0000E820
-    mov ecx, 20
-    mov edx, 0x534D4150             ; 'SMAP'
-    int 0x15
+    ; Call kernel E820 syscall: EBX=continuation, ES:DI=buffer
+    mov ah, SYS_GET_E820
+    int 0x80
 
-    jc .mem_e820_done
-    cmp eax, 0x534D4150
-    jne .mem_e820_done
+    jc .mem_e820_done               ; CF set = end of map or error
 
-    push ebx
+    push ebx                        ; Save continuation value
 
+    ; Print base address (4 bytes, big-endian display)
     mov si, msg_e820_base
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     mov al, [e820_buf+3]
-    call puthex8
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
     mov al, [e820_buf+2]
-    call puthex8
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
     mov al, [e820_buf+1]
-    call puthex8
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
     mov al, [e820_buf]
-    call puthex8
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
 
+    ; Print length (4 bytes at offset 8)
     mov si, msg_e820_len
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     mov al, [e820_buf+11]
-    call puthex8
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
     mov al, [e820_buf+10]
-    call puthex8
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
     mov al, [e820_buf+9]
-    call puthex8
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
     mov al, [e820_buf+8]
-    call puthex8
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
 
+    ; Print type number
     mov si, msg_e820_type
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     mov al, [e820_buf+16]
-    add al, '0'
-    call putc
+    add al, '0'                     ; Convert type number to ASCII digit
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
 
+    ; Print type name string
     mov al, [e820_buf+16]
     mov si, msg_type_usable
     cmp al, 1
@@ -282,147 +361,169 @@ cmd_mem:
     je .mem_print_type
     mov si, msg_type_unknown
 .mem_print_type:
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    pop ebx
-    test ebx, ebx
+    pop ebx                         ; Restore continuation value
+    test ebx, ebx                   ; EBX=0 means end of map
     jnz .mem_e820_loop
 
 .mem_e820_done:
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     jmp shell_prompt
 
 ; =============================================================================
 ; COMMAND: sysinfo
 ; Display 5 pages of system information, pausing between each page.
+; All hardware queries go through INT 0x80 syscalls.
 ; =============================================================================
 cmd_sysinfo:
     ; =========================================================================
-    ; PAGE 1 — CPU Information (CPUID)
+    ; PAGE 1 — CPU Information (CPUID via syscall)
     ; =========================================================================
-    mov ax, 0x0003
-    int 0x10
+    mov ah, SYS_CLEAR_SCREEN        ; Clear screen for page 1
+    int 0x80
 
     mov si, msg_page1_hdr
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    ; --- Check CPUID support -------------------------------------------------
-    pushfd
-    pop eax
-    mov ecx, eax                    ; ECX = original EFLAGS
-    xor eax, 0x00200000             ; Flip ID bit (bit 21)
-    push eax
-    popfd
-    pushfd
-    pop eax
-    push ecx                        ; Restore original EFLAGS
-    popfd
-    xor eax, ecx
-    test eax, 0x00200000
+    ; --- Check CPUID support via kernel syscall ------------------------------
+    mov ah, SYS_CHECK_CPUID         ; Returns AL=1 if CPUID supported
+    int 0x80
+    test al, al
     jz .no_cpuid
 
-    ; --- CPUID leaf 0: Vendor string -----------------------------------------
-    xor eax, eax
-    cpuid
+    ; --- CPUID leaf 0: Vendor string via SYS_CPUID ---------------------------
+    ; Leaf number goes in EDI (kernel moves it to EAX before executing CPUID)
+    xor edi, edi                    ; EDI = 0 (leaf 0: vendor string)
+    mov ah, SYS_CPUID
+    int 0x80
+    ; Returns: EBX:EDX:ECX = vendor string (12 bytes)
     mov [cpuid_vendor], ebx
     mov [cpuid_vendor+4], edx
     mov [cpuid_vendor+8], ecx
     mov byte [cpuid_vendor+12], 0
 
     mov si, msg_cpu_vendor
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     mov si, cpuid_vendor
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
     ; --- CPUID leaf 1: Version and feature flags -----------------------------
-    mov eax, 1
-    cpuid
+    mov edi, 1                      ; EDI = 1 (leaf 1: version info)
+    mov ah, SYS_CPUID
+    int 0x80
+    ; Returns: EAX=version, EDX=feature flags, ECX=extended features
     mov [cpuid_ver], eax
     mov [cpuid_feat_edx], edx
     mov [cpuid_feat_ecx], ecx
 
-    ; Print family
+    ; Print CPU family
     mov si, msg_cpu_family
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     mov eax, [cpuid_ver]
     shr eax, 8
     and ax, 0x0F
-    call print_dec16
+    mov ah, SYS_PRINT_DEC16
+    int 0x80
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    ; Print model
+    ; Print CPU model
     mov si, msg_cpu_model
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     mov eax, [cpuid_ver]
     shr eax, 4
     and ax, 0x0F
-    call print_dec16
+    mov ah, SYS_PRINT_DEC16
+    int 0x80
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    ; Print stepping
+    ; Print CPU stepping
     mov si, msg_cpu_step
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     mov eax, [cpuid_ver]
     and ax, 0x0F
-    call print_dec16
+    mov ah, SYS_PRINT_DEC16
+    int 0x80
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
     ; --- Feature flags -------------------------------------------------------
     mov si, msg_cpu_feat
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
     mov edx, [cpuid_feat_edx]
 
     test edx, 1                     ; Bit 0: FPU
     jz .no_fpu
     mov si, msg_f_fpu
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 .no_fpu:
     test edx, (1<<4)                ; Bit 4: TSC
     jz .no_tsc
     mov si, msg_f_tsc
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 .no_tsc:
     test edx, (1<<5)                ; Bit 5: MSR
     jz .no_msr
     mov si, msg_f_msr
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 .no_msr:
     test edx, (1<<8)                ; Bit 8: CX8
     jz .no_cx8
     mov si, msg_f_cx8
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 .no_cx8:
     test edx, (1<<13)               ; Bit 13: PGE
     jz .no_pge
     mov si, msg_f_pge
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 .no_pge:
     test edx, (1<<15)               ; Bit 15: CMOV
     jz .no_cmov
     mov si, msg_f_cmov
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 .no_cmov:
     test edx, (1<<23)               ; Bit 23: MMX
     jz .no_mmx
     mov si, msg_f_mmx
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 .no_mmx:
     test edx, (1<<25)               ; Bit 25: SSE
     jz .no_sse
     mov si, msg_f_sse
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 .no_sse:
     test edx, (1<<26)               ; Bit 26: SSE2
     jz .no_sse2
     mov si, msg_f_sse2
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 .no_sse2:
 
     mov ecx, [cpuid_feat_ecx]
@@ -430,130 +531,166 @@ cmd_sysinfo:
     test ecx, 1                     ; Bit 0: SSE3
     jz .no_sse3
     mov si, msg_f_sse3
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 .no_sse3:
     test ecx, (1<<19)               ; Bit 19: SSE4.1
     jz .no_sse41
     mov si, msg_f_sse41
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 .no_sse41:
     test ecx, (1<<20)               ; Bit 20: SSE4.2
     jz .no_sse42
     mov si, msg_f_sse42
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 .no_sse42:
 
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
     ; --- Hypervisor detection ------------------------------------------------
     mov ecx, [cpuid_feat_ecx]
-    test ecx, (1<<31)
+    test ecx, (1<<31)               ; Bit 31: Hypervisor present
     jz .no_hypervisor
 
     mov si, msg_hv_yes
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    ; CPUID leaf 0x40000000: hypervisor vendor string
-    mov eax, 0x40000000
-    cpuid
+    ; CPUID leaf 0x40000000: hypervisor vendor string via syscall
+    mov edi, 0x40000000             ; EDI = hypervisor info leaf
+    mov ah, SYS_CPUID
+    int 0x80
     mov [cpuid_vendor], ebx
     mov [cpuid_vendor+4], ecx
     mov [cpuid_vendor+8], edx
     mov byte [cpuid_vendor+12], 0
 
     mov si, msg_hv_vendor
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     mov si, cpuid_vendor
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     jmp .cpuid_done
 
 .no_hypervisor:
     mov si, msg_hv_no
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     jmp .cpuid_done
 
 .no_cpuid:
     mov si, msg_no_cpuid
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
 .cpuid_done:
-    call wait_key
+    ; Wait for keypress, then clear screen for next page
+    mov ah, SYS_WAIT_KEY
+    int 0x80
 
     ; =========================================================================
     ; PAGE 2 — Memory
     ; =========================================================================
     mov si, msg_page2_hdr
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
+    ; Conventional memory via syscall
     mov si, msg_conv_mem
-    call puts
-    int 0x12
-    call print_dec16
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    mov ah, SYS_GET_CONV_MEM        ; Returns AX = conventional KB
+    int 0x80
+    mov ah, SYS_PRINT_DEC16
+    int 0x80
     mov si, msg_kb
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
+    ; Extended memory via syscall
     mov si, msg_ext_mem
-    call puts
-    mov ah, 0x88
-    int 0x15
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    mov ah, SYS_GET_EXT_MEM         ; Returns AX = extended KB, CF=err
+    int 0x80
     jc .no_ext
-    call print_dec16
+    mov ah, SYS_PRINT_DEC16
+    int 0x80
     mov si, msg_kb
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     jmp .e820_start
 .no_ext:
     mov si, msg_na
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
 .e820_start:
+    ; E820 memory map via SYS_GET_E820
     mov si, msg_e820_hdr
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    xor ebx, ebx
+    xor ebx, ebx                    ; Start E820 enumeration
     mov di, e820_buf
 
 .e820_loop:
-    mov eax, 0x0000E820
-    mov ecx, 20
-    mov edx, 0x534D4150
-    int 0x15
+    mov ah, SYS_GET_E820            ; EBX=continuation, ES:DI=buffer
+    int 0x80
 
     jc .e820_done
-    cmp eax, 0x534D4150
-    jne .e820_done
-
     push ebx
 
+    ; Print base address (4 bytes)
     mov si, msg_e820_base
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     mov al, [e820_buf+3]
-    call puthex8
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
     mov al, [e820_buf+2]
-    call puthex8
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
     mov al, [e820_buf+1]
-    call puthex8
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
     mov al, [e820_buf]
-    call puthex8
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
 
+    ; Print length (4 bytes at offset 8)
     mov si, msg_e820_len
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     mov al, [e820_buf+11]
-    call puthex8
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
     mov al, [e820_buf+10]
-    call puthex8
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
     mov al, [e820_buf+9]
-    call puthex8
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
     mov al, [e820_buf+8]
-    call puthex8
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
 
+    ; Print type number and name
     mov si, msg_e820_type
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     mov al, [e820_buf+16]
     add al, '0'
-    call putc
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
 
     mov al, [e820_buf+16]
     mov si, msg_type_usable
@@ -573,392 +710,539 @@ cmd_sysinfo:
     je .print_type
     mov si, msg_type_unknown
 .print_type:
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
     pop ebx
     test ebx, ebx
     jnz .e820_loop
 
 .e820_done:
-    call wait_key
+    mov ah, SYS_WAIT_KEY            ; Wait for keypress, clear screen
+    int 0x80
 
     ; =========================================================================
-    ; PAGE 3 — BIOS Data Area (BDA)
+    ; PAGE 3 — BIOS Data Area (via SYS_GET_BDA_BYTE / SYS_GET_BDA_WORD)
+    ;
+    ; Instead of reading memory at 0x0400+ directly, we use kernel syscalls
+    ; that safely read BDA values for us.
     ; =========================================================================
     mov si, msg_page3_hdr
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    ; --- COM ports ---
+    ; --- COM ports (BDA 0x0400, 0x0402, 0x0404, 0x0406) ----------------------
     mov si, msg_com_hdr
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    mov cx, 4
-    mov bx, 0x0400
+    mov cx, 4                       ; 4 COM ports
+    mov word [bda_offset], 0x0400   ; Starting BDA offset for COM1
+
 .com_loop:
     push cx
     mov si, msg_indent
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    ; Print "COM" label
     mov al, 'C'
-    call putc
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
     mov al, 'O'
-    call putc
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
     mov al, 'M'
-    call putc
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
+
+    ; Print port number (5 - cx = 1,2,3,4)
     mov al, 5
     pop cx
     push cx
     sub al, cl
     add al, '0'
-    call putc
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
     mov al, ':'
-    call putc
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
     mov al, ' '
-    call putc
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
 
-    mov ax, [bx]
+    ; Read COM port address from BDA via syscall
+    mov bx, [bda_offset]
+    mov ah, SYS_GET_BDA_WORD        ; BX=BDA offset; Returns AX=word
+    int 0x80
     test ax, ax
     jz .com_none
-    call print_hex16
+
+    ; Port present — print its I/O address as hex
+    mov ah, SYS_PRINT_HEX16
+    int 0x80
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     jmp .com_next
+
 .com_none:
     mov si, msg_not_present
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
 .com_next:
-    add bx, 2
+    add word [bda_offset], 2        ; Next COM port offset
     pop cx
     dec cx
     jnz .com_loop
 
-    ; --- LPT ports ---
+    ; --- LPT ports (BDA 0x0408, 0x040A, 0x040C) -----------------------------
     mov si, msg_lpt_hdr
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    mov cx, 3
-    mov bx, 0x0408
+    mov cx, 3                       ; 3 LPT ports
+    mov word [bda_offset], 0x0408   ; Starting BDA offset for LPT1
+
 .lpt_loop:
     push cx
     mov si, msg_indent
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    ; Print "LPT" label
     mov al, 'L'
-    call putc
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
     mov al, 'P'
-    call putc
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
     mov al, 'T'
-    call putc
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
+
+    ; Print port number (4 - cx = 1,2,3)
     mov al, 4
     pop cx
     push cx
     sub al, cl
     add al, '0'
-    call putc
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
     mov al, ':'
-    call putc
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
     mov al, ' '
-    call putc
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
 
-    mov ax, [bx]
+    ; Read LPT port address from BDA via syscall
+    mov bx, [bda_offset]
+    mov ah, SYS_GET_BDA_WORD        ; BX=BDA offset; Returns AX=word
+    int 0x80
     test ax, ax
     jz .lpt_none
-    call print_hex16
+
+    mov ah, SYS_PRINT_HEX16
+    int 0x80
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     jmp .lpt_next
+
 .lpt_none:
     mov si, msg_not_present
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
 .lpt_next:
-    add bx, 2
+    add word [bda_offset], 2
     pop cx
     dec cx
     jnz .lpt_loop
 
-    ; --- Equipment word ---
+    ; --- Equipment word via SYS_GET_EQUIP ------------------------------------
     mov si, msg_equip
-    call puts
-    int 0x11
-    call print_hex16
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    mov ah, SYS_GET_EQUIP           ; Returns AX = equipment word
+    int 0x80
+    mov ah, SYS_PRINT_HEX16
+    int 0x80
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    ; --- Video info from BDA ---
+    ; --- Video mode from BDA (offset 0x0449) via syscall ---------------------
     mov si, msg_vid_mode_bda
-    call puts
-    mov al, [0x0449]
-    call puthex8
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    mov bx, 0x0449                  ; BDA offset for current video mode
+    mov ah, SYS_GET_BDA_BYTE        ; Returns AL = byte at BDA offset
+    int 0x80
+    mov ah, SYS_PRINT_HEX8          ; Print video mode as hex
+    int 0x80
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
+    ; --- Screen columns from BDA (offset 0x044A) ----------------------------
     mov si, msg_vid_cols
-    call puts
-    mov ax, [0x044A]
-    call print_dec16
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    mov bx, 0x044A                  ; BDA offset for screen columns
+    mov ah, SYS_GET_BDA_WORD        ; Returns AX = word
+    int 0x80
+    mov ah, SYS_PRINT_DEC16
+    int 0x80
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
+    ; --- Video page size from BDA (offset 0x044C) ----------------------------
     mov si, msg_vid_pagesz
-    call puts
-    mov ax, [0x044C]
-    call print_dec16
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    mov bx, 0x044C                  ; BDA offset for video page size
+    mov ah, SYS_GET_BDA_WORD
+    int 0x80
+    mov ah, SYS_PRINT_DEC16
+    int 0x80
     mov si, msg_bytes
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    call wait_key
+    mov ah, SYS_WAIT_KEY            ; Wait for keypress, clear screen
+    int 0x80
 
     ; =========================================================================
     ; PAGE 4 — Video & Disk
     ; =========================================================================
     mov si, msg_page4_hdr
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    ; --- Active video mode ---
+    ; --- Active video mode via SYS_GET_VIDEO ---------------------------------
     mov si, msg_vid_active
-    call puts
-    mov ah, 0x0F
-    int 0x10
-    push bx
-    call puthex8
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    mov ah, SYS_GET_VIDEO           ; Returns AL=mode, AH=cols, BH=page
+    int 0x80
+    push bx                         ; Save BH=display page
+    push ax                         ; Save AL=video mode
+    mov ah, SYS_PRINT_HEX8          ; Print video mode (AL) as hex
+    int 0x80
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    ; --- Active display page ---
+    ; --- Active display page -------------------------------------------------
     mov si, msg_vid_page
-    call puts
-    pop bx
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    pop ax                          ; Restore saved AX (balance stack)
+    pop bx                          ; BH = display page
     mov al, bh
-    call puthex8
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    ; --- Video memory base ---
+    ; --- Video memory base (determined from BDA video mode) ------------------
     mov si, msg_vid_base
-    call puts
-    mov al, [0x0449]
-    cmp al, 0x07
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    mov bx, 0x0449                  ; BDA offset for video mode
+    mov ah, SYS_GET_BDA_BYTE
+    int 0x80
+    cmp al, 0x07                    ; Mode 7 = monochrome
     je .mono_base
     mov si, msg_b8000
     jmp .print_vbase
 .mono_base:
     mov si, msg_b0000
 .print_vbase:
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    ; --- Cursor position ---
+    ; --- Cursor position via SYS_GET_CURSOR ----------------------------------
     mov si, msg_cursor
-    call puts
-    mov ah, 0x03
-    xor bh, bh
-    int 0x10
-    mov al, dh
-    call puthex8
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    mov ah, SYS_GET_CURSOR          ; Returns DH=row, DL=col
+    int 0x80
+    mov al, dh                      ; Print row
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
     mov al, ','
-    call putc
-    mov al, dl
-    call puthex8
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
+    mov al, dl                      ; Print column
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
     mov si, msg_cursor_rc
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    ; --- Boot drive info ---
+    ; --- Boot drive info (from BIB via SYS_GET_BIB) --------------------------
     mov si, msg_boot_drv
-    call puts
-    mov al, [BIB_DRIVE]             ; Read from BIB instead of local variable
-    call puthex8
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    mov ah, SYS_GET_BIB             ; Returns ES:BX = BIB base
+    int 0x80
+    mov al, [es:bx]                 ; BIB+0 = boot drive number
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    ; --- Drive geometry ---
+    ; --- Drive geometry via SYS_GET_DRIVE_INFO -------------------------------
     mov si, msg_drv_geom
-    call puts
-    mov dl, [BIB_DRIVE]
-    mov ah, 0x08
-    int 0x13
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    ; Get boot drive from BIB for the geometry query
+    push es
+    push bx
+    mov ah, SYS_GET_BIB
+    int 0x80
+    mov dl, [es:bx]                 ; DL = boot drive number
+    pop bx
+    pop es
+
+    mov ah, SYS_GET_DRIVE_INFO      ; Returns: CH,CL,DH,DL geometry; CF=err
+    int 0x80
     jc .no_geom
 
-    push dx
+    push dx                         ; Save DH=max head number
 
+    ; Cylinders (CH = low 8 bits, CL bits 7-6 = high 2 bits)
     mov si, msg_drv_cyl
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     mov al, cl
-    shr al, 6
-    call puthex8
-    mov al, ch
-    call puthex8
+    shr al, 6                       ; High 2 bits of cylinder count
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
+    mov al, ch                      ; Low 8 bits of cylinder count
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
+    ; Sectors per track (CL bits 5-0)
     mov si, msg_drv_sec
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     mov al, cl
-    and al, 0x3F
+    and al, 0x3F                    ; Mask to 6 bits = sectors/track
     xor ah, ah
-    call print_dec16
+    mov ah, SYS_PRINT_DEC16
+    int 0x80
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
+    ; Heads (DH = max head number, +1 = count)
     pop dx
     mov si, msg_drv_head
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     mov al, dh
-    inc al
+    inc al                          ; DH is max head index, +1 = total heads
     xor ah, ah
-    call print_dec16
+    mov ah, SYS_PRINT_DEC16
+    int 0x80
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     jmp .geom_done
 
 .no_geom:
     mov si, msg_na
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
 .geom_done:
 
-    ; --- EDD support ---
+    ; --- EDD support via SYS_GET_EDD -----------------------------------------
+    ; Only basic EDD check (installation check).  Extended params skipped
+    ; because there is no syscall for INT 13h AH=48h.
     mov si, msg_edd_hdr
-    call puts
-    mov dl, [BIB_DRIVE]
-    mov bx, 0x55AA
-    mov ah, 0x41
-    int 0x13
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    ; Get boot drive from BIB
+    push es
+    push bx
+    mov ah, SYS_GET_BIB
+    int 0x80
+    mov dl, [es:bx]                 ; DL = boot drive
+    pop bx
+    pop es
+
+    mov ah, SYS_GET_EDD             ; DL=drive; Returns BX,AH,CX; CF=err
+    int 0x80
     jc .no_edd
-    cmp bx, 0xAA55
+    cmp bx, 0xAA55                  ; EDD signature check
     jne .no_edd
 
-    push ax
-
+    ; EDD supported — print version (AH has EDD version from BIOS)
+    push ax                         ; Save AH=EDD version
     mov si, msg_edd_ver
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     pop ax
-    mov al, ah
-    call puthex8
+    mov al, ah                      ; EDD version byte
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    ; Extended params
-    mov ah, 0x48
-    mov dl, [BIB_DRIVE]
-    mov si, edd_buf
-    mov word [edd_buf], 30
-    int 0x13
-    jc .edd_no_params
-
-    mov si, msg_edd_sectors
-    call puts
-    mov ax, [edd_buf+18]
-    call print_hex16
-    mov ax, [edd_buf+16]
-    call print_hex16
-    mov si, msg_crlf
-    call puts
-
-    mov si, msg_edd_bps
-    call puts
-    mov ax, [edd_buf+24]
-    call print_dec16
-    mov si, msg_crlf
-    call puts
+    ; (Extended EDD params skipped — no syscall for INT 13h AH=48h)
+    mov si, msg_edd_ext_skip
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     jmp .edd_done
-
-.edd_no_params:
-    mov si, msg_na
-    call puts
 
 .no_edd:
     mov si, msg_edd_none
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
 .edd_done:
-    call wait_key
+    mov ah, SYS_WAIT_KEY
+    int 0x80
 
     ; =========================================================================
-    ; PAGE 5 — IVT Sample (Interrupt Vector Table)
+    ; PAGE 5 — IVT Sample (Interrupt Vector Table via SYS_GET_IVT)
+    ;
+    ; Uses SYS_GET_IVT to read IVT entries instead of direct memory access.
     ; =========================================================================
     mov si, msg_page5_hdr
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
 
-    xor bx, bx
-    xor cl, cl
+    mov byte [ivt_index], 0         ; Reset loop counter
 
 .ivt_loop:
-    cmp cl, 8
+    cmp byte [ivt_index], 8
     jge .ivt_done
 
     mov si, msg_indent
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    ; Print "INT " prefix
     mov al, 'I'
-    call putc
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
     mov al, 'N'
-    call putc
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
     mov al, 'T'
-    call putc
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
     mov al, ' '
-    call putc
-    mov al, cl
-    call puthex8
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
+
+    ; Print vector number as hex
+    mov al, [ivt_index]
+    mov ah, SYS_PRINT_HEX8
+    int 0x80
     mov al, 'h'
-    call putc
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
     mov al, ':'
-    call putc
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
     mov al, ' '
-    call putc
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
 
-    mov ax, [bx+2]                  ; Segment
-    call print_hex16
+    ; Read IVT entry via SYS_GET_IVT
+    mov cl, [ivt_index]             ; CL = vector number
+    mov ah, SYS_GET_IVT             ; Returns AX=offset, DX=segment
+    int 0x80
+    push ax                         ; Save offset
+
+    ; Print segment:offset
+    mov ax, dx                      ; Print segment first
+    mov ah, SYS_PRINT_HEX16
+    int 0x80
     mov al, ':'
-    call putc
-    mov ax, [bx]                    ; Offset
-    call print_hex16
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
+    pop ax                          ; Restore offset
+    mov ah, SYS_PRINT_HEX16
+    int 0x80
 
-    push cx
+    ; Print interrupt name from lookup table
     push bx
-    xor ch, ch
-    shl cx, 1
-    mov bx, ivt_names_table
-    add bx, cx
-    mov si, [bx]
-    call puts
+    xor bh, bh
+    mov bl, [ivt_index]
+    shl bx, 1                      ; Each entry is a word (2 bytes)
+    mov si, [ivt_names_table + bx]
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     pop bx
-    pop cx
 
-    add bx, 4
-    inc cl
+    inc byte [ivt_index]
     jmp .ivt_loop
 
 .ivt_done:
     mov si, msg_sysinfo_done
-    call puts
-    call wait_key
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    mov ah, SYS_WAIT_KEY
+    int 0x80
     jmp shell_init
 
 ; =============================================================================
 ; SUBROUTINES
+;
+; Only pure-logic routines remain here.  All I/O routines (puts, putc,
+; puthex8, print_hex16, print_dec16, wait_key, check_a20) have been removed
+; because the kernel provides equivalent syscalls.
 ; =============================================================================
 
 ; ---------------------------------------------------------------------------
 ; readline — Read a line of input into cmd_buf (up to 31 chars).
+;
+; Uses SYS_READ_KEY for keyboard input and SYS_PRINT_CHAR for echo.
+; Handles Enter (submit), Backspace (delete), and printable ASCII.
+; Converts uppercase to lowercase for case-insensitive command matching.
 ; ---------------------------------------------------------------------------
 readline:
-    xor cx, cx
+    xor cx, cx                      ; CX = character count
 
 .read_char:
-    xor ah, ah
-    int 0x16
+    mov ah, SYS_READ_KEY            ; Wait for keypress via kernel syscall
+    int 0x80                        ; Returns AH=scancode, AL=ASCII
+    ; Note: AH now has scancode, not the syscall number anymore
 
-    cmp al, 0x0D
+    cmp al, 0x0D                    ; Enter key?
     je .read_done
 
-    cmp al, 0x08
+    cmp al, 0x08                    ; Backspace?
     je .read_bs
 
-    cmp al, 0x20
+    cmp al, 0x20                    ; Below space = control char -> skip
     jb .read_char
-    cmp al, 0x7E
+    cmp al, 0x7E                    ; Above '~' -> skip
     ja .read_char
 
-    cmp cx, 31
+    cmp cx, 31                      ; Buffer full?
     jge .read_char
 
-    ; Convert uppercase to lowercase
+    ; Convert uppercase to lowercase for case-insensitive matching
     cmp al, 'A'
     jb .no_lower
     cmp al, 'Z'
@@ -966,46 +1250,54 @@ readline:
     add al, 32
 .no_lower:
 
+    ; Store character in buffer
     mov bx, cmd_buf
     add bx, cx
     mov [bx], al
     inc cx
 
-    mov ah, 0x0E
-    xor bh, bh
-    int 0x10
+    ; Echo the character to screen via SYS_PRINT_CHAR
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
     jmp .read_char
 
 .read_bs:
-    test cx, cx
+    test cx, cx                     ; Nothing to delete?
     jz .read_char
 
-    dec cx
+    dec cx                          ; Remove last character
 
-    mov ah, 0x0E
-    mov al, 0x08
-    xor bh, bh
-    int 0x10
-    mov al, ' '
-    int 0x10
-    mov al, 0x08
-    int 0x10
+    ; Backspace echo: move cursor back, print space, move back again
+    mov al, 0x08                    ; Backspace character
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
+    mov al, ' '                     ; Overwrite with space
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
+    mov al, 0x08                    ; Move cursor back again
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
     jmp .read_char
 
 .read_done:
+    ; NUL-terminate the input buffer
     mov bx, cmd_buf
     add bx, cx
     mov byte [bx], 0
     mov [cmd_len], cl
 
+    ; Print newline after the entered command
     mov si, msg_crlf
-    call puts
+    mov ah, SYS_PRINT_STRING
+    int 0x80
     ret
 
 ; ---------------------------------------------------------------------------
 ; strcmp — Compare two NUL-terminated strings (case-sensitive).
 ;   Input:  DS:SI -> string 1, DS:DI -> string 2
 ;   Output: ZF set if strings are equal
+;
+; Pure logic — no hardware access, no syscalls needed.
 ; ---------------------------------------------------------------------------
 strcmp:
     push si
@@ -1028,144 +1320,13 @@ strcmp:
     or al, 1                        ; Clear ZF (not equal)
     ret
 
-; ---------------------------------------------------------------------------
-; puts — Print NUL-terminated string at DS:SI.
-; ---------------------------------------------------------------------------
-puts:
-    lodsb
-    test al, al
-    jz .done
-    mov ah, 0x0E
-    xor bh, bh
-    int 0x10
-    jmp puts
-.done:
-    ret
-
-; ---------------------------------------------------------------------------
-; putc — Print a single character in AL.
-; ---------------------------------------------------------------------------
-putc:
-    mov ah, 0x0E
-    xor bh, bh
-    int 0x10
-    ret
-
-; ---------------------------------------------------------------------------
-; puthex8 — Print AL as two hex digits.
-; ---------------------------------------------------------------------------
-puthex8:
-    push ax
-    shr al, 4
-    call .nib
-    pop ax
-    and al, 0x0F
-.nib:
-    add al, '0'
-    cmp al, '9'
-    jbe putc
-    add al, 7
-    jmp putc
-
-; ---------------------------------------------------------------------------
-; print_hex16 — Print AX as four hex digits.
-; ---------------------------------------------------------------------------
-print_hex16:
-    push ax
-    mov al, ah
-    call puthex8
-    pop ax
-    call puthex8
-    ret
-
-; ---------------------------------------------------------------------------
-; print_dec16 — Print AX as unsigned decimal (0–65535).
-; ---------------------------------------------------------------------------
-print_dec16:
-    push cx
-    push dx
-    xor cx, cx
-
-.div_loop:
-    xor dx, dx
-    mov bx, 10
-    div bx
-    push dx
-    inc cx
-    test ax, ax
-    jnz .div_loop
-
-.print_loop:
-    pop ax
-    add al, '0'
-    call putc
-    dec cx
-    jnz .print_loop
-
-    pop dx
-    pop cx
-    ret
-
-; ---------------------------------------------------------------------------
-; wait_key — Print "Press any key..." and wait, then clear screen.
-; ---------------------------------------------------------------------------
-wait_key:
-    mov si, msg_anykey
-    call puts
-    xor ah, ah
-    int 0x16
-    mov ax, 0x0003
-    int 0x10
-    ret
-
-; ---------------------------------------------------------------------------
-; check_a20 — Test if A20 is enabled (wrap-around method).
-;   Output: ZF=0 (NZ) if enabled, ZF=1 (Z) if disabled
-;   Clobbers: AX, CL
-; ---------------------------------------------------------------------------
-check_a20:
-    push ds
-    push es
-
-    xor ax, ax
-    mov ds, ax
-    mov ax, 0xFFFF
-    mov es, ax
-
-    mov al, [ds:0x0500]
-    push ax
-    mov al, [es:0x0510]
-    push ax
-
-    mov byte [es:0x0510], 0x13
-    mov byte [ds:0x0500], 0x37
-
-    cmp byte [es:0x0510], 0x37
-    je .chk_off
-    mov cl, 1
-    jmp .chk_restore
-.chk_off:
-    mov cl, 0
-
-.chk_restore:
-    pop ax
-    mov [es:0x0510], al
-    pop ax
-    mov [ds:0x0500], al
-
-    pop es
-    pop ds
-
-    test cl, cl
-    ret
-
 ; =============================================================================
 ; DATA — String constants
 ; =============================================================================
 
 ; --- Shell strings -----------------------------------------------------------
 msg_banner      db 13, 10
-                db '  MNOS v0.4.0', 13, 10
+                db '  MNOS v0.5.0', 13, 10
                 db 13, 10, 0
 
 msg_prompt      db 'mnos:\>', 0
@@ -1189,11 +1350,11 @@ str_cls         db 'cls', 0
 str_reboot      db 'reboot', 0
 
 ; --- ver command strings -----------------------------------------------------
-msg_ver_text    db '  MNOS v0.4.0', 13, 10
+msg_ver_text    db '  MNOS v0.5.0', 13, 10
                 db '  Arch:      x86 real mode (16-bit)', 13, 10
                 db '  Assembler: NASM', 13, 10
                 db '  Platform:  Hyper-V Gen 1', 13, 10
-                db '  Boot:      MBR -> VBR -> LOADER -> SHELL', 13, 10
+                db '  Boot:      MBR -> VBR -> LOADER -> KERNEL -> SHELL', 13, 10
                 db '  Disk:      16 MB fixed VHD', 13, 10
                 db '  Source:    github.com/ambaner/mini-os', 13, 10, 0
 
@@ -1249,8 +1410,7 @@ msg_drv_head    db '    Heads:     ', 0
 ; --- EDD strings -------------------------------------------------------------
 msg_edd_hdr     db '  EDD Support:', 13, 10, 0
 msg_edd_ver     db '    Version:       ', 0
-msg_edd_sectors db '    Total sectors: ', 0
-msg_edd_bps     db '    Bytes/sector:  ', 0
+msg_edd_ext_skip db '    (Extended params not available via syscall)', 13, 10, 0
 msg_edd_none    db '    Not available', 13, 10, 0
 
 ; --- IVT strings -------------------------------------------------------------
@@ -1286,7 +1446,8 @@ msg_layout      db '    0x00000-0x003FF  1 KB    IVT (Interrupt Vector Table)', 
                 db '    0x00500-0x005FF  256 B   Free (BIOS scratch)', 13, 10
                 db '    0x00600-0x0060F  16 B    Boot Info Block (BIB)', 13, 10
                 db '    0x00800-0x027FF  8 KB    LOADER.BIN', 13, 10
-                db '    0x03000-0x06FFF  16 KB   SHELL.BIN (this code)', 13, 10
+                db '    0x03000-0x04FFF  8 KB    SHELL.BIN (this code)', 13, 10
+                db '    0x05000-0x06FFF  8 KB    KERNEL.BIN (INT 0x80)', 13, 10
                 db '    0x07000-0x07BFF  3 KB    Stack', 13, 10
                 db '    0x07C00-0x07FFF  1 KB    VBR (boot only)', 13, 10
                 db '    0x0A000-0x0BFFF  8 KB    Video RAM', 13, 10
@@ -1331,6 +1492,7 @@ msg_anykey      db 13, 10, '  Press any key...', 0
 cmd_buf         times 32 db 0       ; Command input buffer (31 chars + NUL)
 cmd_len         db 0
 e820_buf        times 20 db 0       ; E820 buffer (one entry)
+bda_offset      dw 0                ; Temp storage for BDA offset in loops
 
 ; CPUID scratch space
 cpuid_vendor    times 13 db 0       ; 12-byte vendor string + NUL
@@ -1338,10 +1500,11 @@ cpuid_ver       dd 0
 cpuid_feat_edx  dd 0
 cpuid_feat_ecx  dd 0
 
-; EDD extended drive parameters buffer
-edd_buf         times 30 db 0
+; IVT loop counter
+ivt_index       db 0
 
 ; =============================================================================
-; PADDING — fill to sector boundary
+; PADDING — fill to sector boundary (10 sectors = 5120 bytes)
 ; =============================================================================
 times (10 * 512) - ($ - $$) db 0
+

@@ -36,6 +36,7 @@ jobs:
         Copy-Item "build\boot\mbr.bin"       "$stagingDir\distro\mbr\"
         Copy-Item "build\boot\vbr.bin"       "$stagingDir\distro\mbr\"
         Copy-Item "build\boot\loader.bin"    "$stagingDir\distro\mbr\"
+        Copy-Item "build\boot\kernel.bin"    "$stagingDir\distro\mbr\"
         Copy-Item "build\boot\shell.bin"     "$stagingDir\distro\mbr\"
         Copy-Item "build\boot\mini-os.vhd"   "$stagingDir\vhd\"
         Copy-Item "tools\setup-vm.ps1"        "$stagingDir\setup-vm\"
@@ -60,8 +61,9 @@ jobs:
         ============
 
         A minimalistic bootable OS. MBR reads the partition table, loads the
-        VBR from the active partition. Three-stage boot chain: VBR loads
-        LOADER.BIN (A20 enablement), which loads SHELL.BIN (interactive shell).
+        VBR from the active partition. Four-stage boot chain: VBR loads
+        LOADER.BIN (A20 enablement), which loads KERNEL.BIN (INT 0x80 syscall
+        interface), which loads SHELL.BIN (interactive shell).
         Commands: sysinfo, mem, ver, help, cls, reboot.
 
         CONTENTS
@@ -69,6 +71,7 @@ jobs:
         distro\mbr\mbr.bin      Raw 512-byte MBR boot sector
         distro\mbr\vbr.bin      Raw VBR binary (2 sectors / 1 KB)
         distro\mbr\loader.bin   LOADER.BIN (2 sectors / 1 KB)
+        distro\mbr\kernel.bin   KERNEL.BIN (4 sectors / 2 KB)
         distro\mbr\shell.bin    SHELL.BIN (10 sectors / 5 KB)
         vhd\mini-os.vhd       16 MB fixed VHD — ready to boot in Hyper-V
         setup-vm\             Scripts to create/update a Hyper-V VM

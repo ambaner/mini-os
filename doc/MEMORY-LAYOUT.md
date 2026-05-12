@@ -80,13 +80,18 @@ Address       Size      Contents                 Lifetime
 
 0x0000:0x0800  8192 B   LOADER.BIN                Active during load;
                (8 KB     (2 sectors used,          code runs then jumps
-                max)      6 KB growth room)        to shell — dead after
+                max)      6 KB growth room)        to kernel — dead after
 
 0x0000:0x2800  2048 B   (Unused gap)              Available for future use
 
-0x0000:0x3000 16384 B   SHELL.BIN                 Permanent (OS runtime)
-               (16 KB    (10 sectors = 5 KB used,
-                max)      11 KB growth room)
+0x0000:0x3000  8192 B   SHELL.BIN                 Permanent (OS runtime)
+               (8 KB     (10 sectors = 5 KB used,  Loaded by KERNEL, runs
+                max)      3 KB growth room)         as user-mode executable
+                                                    via INT 0x80 syscalls
+
+0x0000:0x5000  8192 B   KERNEL.BIN                Permanent (OS runtime)
+               (8 KB     (4 sectors = 2 KB used,   Loaded by LOADER, installs
+                max)      6 KB growth room)         INT 0x80 syscall handler
 
 0x0000:0x7000  3072 B   Stack zone (grows ↓)      Active (see §3)
                (3 KB)    SP starts at 0x7C00,
@@ -115,9 +120,9 @@ the BIOS Data Area, in a region that the BIOS guarantees is free.
 
 | Offset | Size | Field | Written by | Read by |
 |--------|------|-------|------------|---------|
-| 0x0600 | 1 B | `boot_drive` | VBR | LOADER, SHELL |
-| 0x0601 | 1 B | `a20_status` | LOADER | SHELL (ver, mem commands) |
-| 0x0602 | 4 B | `part_lba` | VBR | LOADER (computes absolute LBAs) |
+| 0x0600 | 1 B | `boot_drive` | VBR | LOADER, KERNEL |
+| 0x0601 | 1 B | `a20_status` | LOADER | KERNEL, SHELL (via syscall) |
+| 0x0602 | 4 B | `part_lba` | VBR | LOADER, KERNEL (computes absolute LBAs) |
 | 0x0606 | 10 B | *reserved* | — | Future expansion |
 
 **Why 0x0600?**  This address sits in the "free area" between the BDA (ends at
@@ -132,29 +137,42 @@ that no boot binary would be placed there.
 The VBR loads LOADER.BIN to linear address 0x0800 (segment 0x0000, offset
 0x0800).  The loader is assembled with `[ORG 0x0800]`.
 
-**Contents** (v0.4.0): A20 gate enablement (3 methods + verification), disk
-read for SHELL.BIN, magic number check, jump to shell.
+**Contents** (v0.5.0): A20 gate enablement (3 methods + verification), disk
+read for KERNEL.BIN, magic number check, jump to kernel.
 
 **Current size**: 2 sectors (1024 bytes).  **Maximum**: 16 sectors (8192 bytes)
 ending at 0x27FF.  This leaves a comfortable gap before SHELL.BIN at 0x3000.
 
-**Lifetime**: The loader runs, loads the shell, and jumps to it.  After the
+**Lifetime**: The loader runs, loads the kernel, and jumps to it.  After the
 jump, the loader's code is technically dead — but the memory is not reclaimed.
-A future kernel could reuse 0x0800–0x27FF as scratch space.
 
-#### SHELL.BIN — 0x3000 (up to 16 KB)
+#### KERNEL.BIN — 0x5000 (up to 8 KB)
 
-The loader loads SHELL.BIN to linear address 0x3000 (segment 0x0000, offset
+The loader loads KERNEL.BIN to linear address 0x5000 (segment 0x0000, offset
+0x5000).  The kernel is assembled with `[ORG 0x5000]`.
+
+**Contents** (v0.5.0): INT 0x80 IVT installation, 27 syscall handlers wrapping
+BIOS interrupts (video, keyboard, disk, memory, CPUID, BDA access, etc.),
+SHELL.BIN loading from disk, version info, and utility functions.
+
+**Current size**: 4 sectors (2048 bytes), ending at 0x57FF.  **Maximum**:
+16 sectors (8192 bytes), ending at 0x6FFF.
+
+**Lifetime**: Permanent — the kernel must remain resident for the entire OS
+runtime because the shell and all user-mode programs call into it via INT 0x80.
+
+#### SHELL.BIN — 0x3000 (up to 8 KB)
+
+The kernel loads SHELL.BIN to linear address 0x3000 (segment 0x0000, offset
 0x3000).  The shell is assembled with `[ORG 0x3000]`.
 
-**Contents** (v0.4.0): Command loop, all shell commands (sysinfo, mem, ver,
-help, cls, reboot), all subroutines (puts, putc, puthex8, print_hex16,
-print_dec16, strcmp, readline, wait_key, check_a20), string constants, and
-runtime data buffers (cmd_buf, e820_buf, cpuid_vendor, edd_buf).
+**Contents** (v0.5.0): Command loop, all shell commands (sysinfo, mem, ver,
+help, cls, reboot), thin syscall wrappers (all hardware access via INT 0x80),
+strcmp, readline, string constants, and runtime data buffers.
 
 **Current size**: 10 sectors (5120 bytes), ending at 0x43FF.  **Maximum**:
-32 sectors (16384 bytes), ending at 0x6FFF.  This leaves 0x7000–0x7BFF as
-the stack zone.
+16 sectors (8192 bytes), ending at 0x4FFF.  The kernel at 0x5000 sets the
+upper boundary.
 
 **Runtime data buffers within SHELL.BIN**:
 
@@ -167,7 +185,6 @@ the stack zone.
 | `cpuid_ver` | 4 B | CPUID version (family/model/stepping) |
 | `cpuid_feat_edx` | 4 B | CPUID feature flags (EDX) |
 | `cpuid_feat_ecx` | 4 B | CPUID feature flags (ECX) |
-| `edd_buf` | 30 B | EDD extended drive parameters |
 
 These buffers are embedded within the SHELL.BIN binary (in the `.data`-like
 trailing section) and loaded into memory as part of the shell.  They are
@@ -211,15 +228,15 @@ first `push` writes to 0x7BFE (SP decrements by 2 before writing).
 ### 3.2 Available Stack Space
 
 The stack can grow from 0x7C00 downward.  The nearest structure below it is
-SHELL.BIN, which currently extends to 0x43FF (10 sectors × 512 = 5120 bytes
-from 0x3000).
+KERNEL.BIN, which currently extends to 0x57FF (4 sectors × 512 = 2048 bytes
+from 0x5000).
 
 ```
-                    SHELL.BIN end    Stack bottom     SP initial
+                    KERNEL.BIN end   Stack bottom     SP initial
                     (current)        (safe limit)     (top)
                          │                │               │
-  0x3000 ──── 0x43FF ──── 0x7000 ──────── 0x7BFE ──── 0x7C00
-         ╰───5 KB────╯    ╰───3 KB stack───╯
+  0x5000 ──── 0x57FF ──── 0x7000 ──────── 0x7BFE ──── 0x7C00
+         ╰───2 KB────╯    ╰───3 KB stack───╯
 ```
 
 **Current available stack**: 0x7C00 − 0x4400 = **14,336 bytes (14 KB)**.
