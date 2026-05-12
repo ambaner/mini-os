@@ -78,20 +78,21 @@ Address       Size      Contents                 Lifetime
 
 0x0000:0x0610   496 B   (Unused gap)              Available for future use
 
-0x0000:0x0800  8192 B   LOADER.BIN                Active during load;
-               (8 KB     (2 sectors used,          code runs then jumps
-                max)      6 KB growth room)        to kernel — dead after
+0x0000:0x0800  8192 B   LOADER.BIN → FS.BIN      Boot: LOADER runs here;
+               (8 KB     (LOADER: 2 sec used,     after kernel loads, FS.BIN
+                max)      FS.BIN: 2 sec used)      overwrites it (same addr)
 
 0x0000:0x2800  2048 B   (Unused gap)              Available for future use
 
 0x0000:0x3000  8192 B   SHELL.BIN                 Permanent (OS runtime)
-               (8 KB     (10 sectors = 5 KB used,  Loaded by KERNEL, runs
-                max)      3 KB growth room)         as user-mode executable
+               (8 KB     (12 sectors = 6 KB used,  Loaded by KERNEL, runs
+                max)      2 KB growth room)         as user-mode executable
                                                     via INT 0x80 syscalls
 
 0x0000:0x5000  8192 B   KERNEL.BIN                Permanent (OS runtime)
-               (8 KB     (4 sectors = 2 KB used,   Loaded by LOADER, installs
-                max)      6 KB growth room)         INT 0x80 syscall handler
+               (8 KB     (6 sectors = 3 KB used,   Loaded by LOADER, installs
+                max)      5 KB growth room)         INT 0x80 syscall handler,
+                                                    loads FS.BIN + SHELL
 
 0x0000:0x7000  3072 B   Stack zone (grows ↓)      Active (see §3)
                (3 KB)    SP starts at 0x7C00,
@@ -187,6 +188,7 @@ upper boundary.
 |--------|------|---------|
 | `cmd_buf` | 32 B | Keyboard input (31 chars + NUL) |
 | `cmd_len` | 1 B | Current input length |
+| `dir_buffer` | 512 B | MNFS directory data (from FS_LIST_FILES) |
 | `e820_buf` | 20 B | Single INT 15h E820 memory map entry |
 | `cpuid_vendor` | 13 B | CPUID vendor string (12 chars + NUL) |
 | `cpuid_ver` | 4 B | CPUID version (family/model/stepping) |
@@ -295,14 +297,15 @@ Not all memory regions are active simultaneously.  Understanding lifetimes
 helps identify what can be reclaimed:
 
 ```
-Time →    MBR runs    VBR runs    LOADER runs    SHELL runs
-          ────────    ────────    ───────────    ──────────
-0x0600    (free)      BIB ████    BIB ████████   BIB ████████████
-0x0800    (free)      (free)      LOADER █████   (dead code) ░░░░
-0x3000    (free)      (free)      (free)         SHELL ██████████
-0x7C00    MBR █████   VBR ██████  (dead code)    (dead code) ░░░░
-0x7E00    (free)      VBR buf ██  (free)         (free)
-Stack     ████████    ████████    ████████████   ████████████████
+Time →    MBR runs    VBR runs    LOADER runs    KERNEL init    SHELL runs
+          ────────    ────────    ───────────    ───────────    ──────────
+0x0600    (free)      BIB ████    BIB ████████   BIB ████████   BIB ████████
+0x0800    (free)      (free)      LOADER █████   FS.BIN █████   FS.BIN █████
+0x3000    (free)      (free)      (free)         SHELL ██████   SHELL ██████
+0x5000    (free)      (free)      (free)         KERNEL █████   KERNEL █████
+0x7C00    MBR █████   VBR ██████  (dead code)    (dead code)    (dead code)
+0x7E00    (free)      VBR buf ██  (free)         (free)         (free)
+Stack     ████████    ████████    ████████████   ████████████   ████████████
 
 ████ = Active    ░░░░ = Dead (reclaimable)    (free) = Never used
 ```
@@ -311,14 +314,14 @@ Stack     ████████    ████████    ████�
 
 | Region | Address | Size | Notes |
 |--------|---------|------|-------|
-| LOADER code | 0x0800–0x0BFF | 1 KB | Could be scratch space |
-| LOADER growth room | 0x0C00–0x27FF | 7 KB | Never used |
-| Loader–shell gap | 0x2800–0x2FFF | 2 KB | Never used |
+| FS.BIN growth room | 0x0C00–0x27FF | 7 KB | FS.BIN is 1 KB, rest unused |
+| FS–shell gap | 0x2800–0x2FFF | 2 KB | Never used |
 | VBR code | 0x7C00–0x7FFF | 1 KB | Overlaps stack zone |
 | VBR staging buffer | 0x7E00–0x9DFF | 8 KB | Fully free |
 
-**Total reclaimable**: ~19 KB (not counting VBR area which overlaps with
+**Total reclaimable**: ~18 KB (not counting VBR area which overlaps with
 stack).  A future memory manager could return these regions to a free pool.
+Note: 0x0800 is now occupied permanently by FS.BIN (was reclaimable in v0.4.0).
 
 ---
 
@@ -341,7 +344,9 @@ DAP Structure (16 bytes):
 |-------|-------------|------------|-------------|
 | MBR | Within MBR code (~0x7D4E) | VBR sectors | 0x0000:0x7E00 |
 | VBR | Within VBR code (~0x7E98) | LOADER.BIN | 0x0000:0x0800 |
-| LOADER | Within LOADER code (~0x0907) | SHELL.BIN | 0x0000:0x3000 |
+| LOADER | Within LOADER code (~0x0907) | KERNEL.BIN | 0x0000:0x5000 |
+| KERNEL | Within KERNEL code | FS.BIN | 0x0000:0x0800 |
+| KERNEL | Within KERNEL code | SHELL.BIN | 0x0000:0x3000 |
 
 DAP structures are part of their respective binaries and share the same
 lifetime.  They are modified in place (sector count, LBA fields) during the
@@ -533,7 +538,7 @@ prevents a larger loader from colliding with the shell.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│            mini-os v0.4.0 Memory Quick Reference        │
+│            mini-os v0.6.0 Memory Quick Reference        │
 ├──────────┬──────────┬──────────────────────┬────────────┤
 │ Start    │ End      │ Contents             │ Size       │
 ├──────────┼──────────┼──────────────────────┼────────────┤
@@ -542,11 +547,13 @@ prevents a larger loader from colliding with the shell.
 │ 0x0500   │ 0x05FF   │ Free (A20 test uses) │ 256 B      │
 │ 0x0600   │ 0x060F   │ Boot Info Block      │ 16 B       │
 │ 0x0610   │ 0x07FF   │ (unused)             │ 496 B      │
-│ 0x0800   │ 0x0BFF   │ LOADER.BIN (2 sec)   │ 1 KB       │
-│ 0x0C00   │ 0x27FF   │ (loader growth)      │ 7 KB       │
+│ 0x0800   │ 0x0BFF   │ FS.BIN (2 sec)       │ 1 KB       │
+│ 0x0C00   │ 0x27FF   │ (FS growth room)     │ 7 KB       │
 │ 0x2800   │ 0x2FFF   │ (gap / buffer zone)  │ 2 KB       │
-│ 0x3000   │ 0x43FF   │ SHELL.BIN (10 sec)   │ 5 KB       │
-│ 0x4400   │ 0x6FFF   │ (shell growth)       │ 11 KB      │
+│ 0x3000   │ 0x47FF   │ SHELL.BIN (12 sec)   │ 6 KB       │
+│ 0x4800   │ 0x4FFF   │ (shell growth)       │ 2 KB       │
+│ 0x5000   │ 0x5BFF   │ KERNEL.BIN (6 sec)   │ 3 KB       │
+│ 0x5C00   │ 0x6FFF   │ (kernel growth)      │ 5 KB       │
 │ 0x7000   │ 0x7BFF   │ Stack zone           │ 3 KB       │
 │ 0x7C00   │ 0x7FFF   │ VBR (boot-time)      │ 1 KB       │
 │ 0x7E00   │ 0x9DFF   │ VBR staging (temp)   │ 8 KB       │
@@ -554,8 +561,9 @@ prevents a larger loader from colliding with the shell.
 │ 0xA0000  │ 0xBFFFF  │ Video memory         │ 128 KB     │
 │ 0xC0000  │ 0xFFFFF  │ ROMs + BIOS          │ 256 KB     │
 ├──────────┴──────────┴──────────────────────┴────────────┤
-│ Total code loaded: 7,168 B (MBR 512 + VBR 1K + LOADER  │
-│                     1K + SHELL 5K) — under 1% of 640 KB │
+│ Total code loaded: 11,776 B (MBR 512 + VBR 1K + LOADER │
+│         1K + FS 1K + KERNEL 3K + SHELL 6K) — ~2% of    │
+│         640 KB                                          │
 └─────────────────────────────────────────────────────────┘
 ```
 
