@@ -171,7 +171,7 @@ with no headers — exactly what the BIOS expects.
 ## 3. Interactive Shell
 
 After the MBR chain-loads the VBR, the VBR clears the screen, displays a version
-banner (`MNOS v0.2.6`), and enters an interactive command loop with a `mnos:\>`
+banner (`MNOS v0.2.7`), and enters an interactive command loop with a `mnos:\>`
 prompt.
 
 ### 3.1 Shell Architecture
@@ -188,8 +188,9 @@ The shell is a simple read-eval-print loop:
 
 | Command | Description |
 |---------|-------------|
-| `sysinfo` | Display 4 pages of system information (memory, BDA, video/disk, IVT) |
+| `sysinfo` | Display 5 pages of system information (CPU, memory, BDA, video/disk, IVT) |
 | `mem` | Detailed memory info: conventional/extended RAM, A20 status, layout, E820 map |
+| `ver` | Version, architecture, assembler, platform, boot chain, disk, source URL |
 | `help` | List available commands |
 | `cls` | Clear the screen and re-display banner |
 | `reboot` | Warm-reboot the system (BIOS reset vector) |
@@ -198,15 +199,30 @@ Unknown commands print `Unknown command: <input>` and re-prompt.
 
 ### 3.3 `sysinfo` Command
 
-Displays four pages of system information, with "Press any key..." between each
+Displays five pages of system information, with "Press any key..." between each
 page and a screen clear before each new page:
 
 | Page | Title | Information |
 |------|-------|-------------|
-| 1 | CPU & Memory | INT 12h conventional memory, INT 15h AH=88h extended memory, E820 memory map |
-| 2 | BIOS Data Area | COM/LPT port addresses, equipment word, video mode, columns, page size |
-| 3 | Video & Disk | Current video mode, cursor position, video memory base, boot drive geometry |
-| 4 | IVT Sample | First 8 interrupt vectors (INT 0–7) with descriptions |
+| 1 | CPU Information | CPUID vendor string, family/model/stepping, feature flags (FPU, TSC, MSR, CX8, PGE, CMOV, MMX, SSE/2/3/4.1/4.2), hypervisor detection + vendor |
+| 2 | Memory | INT 12h conventional memory, INT 15h AH=88h extended memory, E820 memory map |
+| 3 | BIOS Data Area | COM/LPT port addresses, equipment word, video mode, columns, page size |
+| 4 | Video & Disk | Current video mode, cursor position, video memory base, boot drive geometry, EDD version/total sectors/bytes per sector |
+| 5 | IVT Sample | First 8 interrupt vectors (INT 0-7) with descriptions |
+
+#### CPUID Detection
+
+The CPUID instruction (available on 486+) is detected by attempting to flip bit 21
+(the ID flag) in EFLAGS.  If the bit toggles, CPUID is supported.  Leaf 0
+returns the 12-byte vendor string; leaf 1 returns the CPU family, model, stepping,
+and feature flags in EDX/ECX.  When the hypervisor-present flag (ECX bit 31) is
+set, leaf 0x40000000 returns the hypervisor vendor string (e.g., "Microsoft Hv").
+
+#### EDD (Enhanced Disk Drive)
+
+INT 13h AH=41h checks for EDD extension support.  If present, AH=48h returns
+an extended parameter block with total sector count (64-bit) and bytes per sector,
+providing more detail than the legacy CHS geometry from AH=08h.
 
 ### 3.4 `mem` Command
 
@@ -241,7 +257,21 @@ When we later switch to protected mode, we will explicitly enable A20 as a
 safety measure (in case any environment leaves it off), using the keyboard
 controller method (port 0x64/0x60) or the fast A20 method (port 0x92).
 
-### 3.5 VBR Subroutines
+### 3.5 `ver` Command
+
+Displays static version and build information:
+
+```
+  MNOS v0.2.7
+  Arch:      x86 real mode (16-bit)
+  Assembler: NASM
+  Platform:  Hyper-V Gen 1
+  Boot:      MBR -> VBR (16 sectors / 8 KB)
+  Disk:      16 MB fixed VHD
+  Source:    github.com/ambaner/mini-os
+```
+
+### 3.6 VBR Subroutines
 
 | Routine | Description |
 |---------|-------------|
@@ -457,7 +487,7 @@ This document will be updated as the project evolves. Planned milestones:
 |-----------|-------------|
 | **M0** ✅ | Boot MBR, print banner, halt |
 | **M1** ✅ | Partition table scan, VBR chain-load, multi-sector boot area (16 sectors / 8 KB) |
-| **M1+** ✅ | VBR system information display (4 pages: memory, BDA, video/disk, IVT) |
+| **M1+** ✅ | VBR system information display (5 pages: CPU, memory, BDA, video/disk, IVT) |
 | **M2** ✅ | Interactive shell (`mnos:\>`) with command dispatch, `sysinfo` as first command |
 | **M3** | A20 gate enable + kernel binary load from disk |
 | **M4** | Switch to 32-bit protected mode |

@@ -11,7 +11,7 @@
 ; After clearing the screen, the VBR displays a banner and drops into an
 ; interactive command shell.  Available commands:
 ;
-;   sysinfo  - Display 4 pages of system information
+;   sysinfo  - Display 5 pages of system information
 ;   help     - List available commands
 ;   cls      - Clear the screen
 ;   reboot   - Warm-reboot the system
@@ -118,6 +118,12 @@ shell_prompt:
     call strcmp
     je cmd_cls
 
+    ; "ver" -> version info
+    mov si, cmd_buf
+    mov di, str_ver
+    call strcmp
+    je cmd_ver
+
     ; "reboot" -> warm reboot
     mov si, cmd_buf
     mov di, str_reboot
@@ -156,6 +162,15 @@ cmd_reboot:
 ; =============================================================================
 cmd_help:
     mov si, msg_help_text
+    call puts
+    jmp shell_prompt
+
+; =============================================================================
+; COMMAND: ver
+; Print version and build information.
+; =============================================================================
+cmd_ver:
+    mov si, msg_ver_text
     call puts
     jmp shell_prompt
 
@@ -336,18 +351,205 @@ cmd_mem:
 
 ; =============================================================================
 ; COMMAND: sysinfo
-; Display 4 pages of system information, pausing between each page.
+; Display 5 pages of system information, pausing between each page.
 ; This is the same system info display from v0.2.2, now wrapped as a command.
 ; =============================================================================
 cmd_sysinfo:
     ; =========================================================================
-    ; PAGE 1 - CPU & Memory
+    ; PAGE 1 - CPU Information (CPUID)
     ; =========================================================================
-    ; Clear screen for page 1
     mov ax, 0x0003
     int 0x10
 
     mov si, msg_page1_hdr
+    call puts
+
+    ; --- Check CPUID support -------------------------------------------------
+    ; Try to flip the ID bit (bit 21) in EFLAGS.  If the CPU allows the flip,
+    ; the CPUID instruction is available (486+).
+    pushfd
+    pop eax
+    mov ecx, eax                    ; ECX = original EFLAGS
+    xor eax, 0x00200000             ; Flip ID bit (bit 21)
+    push eax
+    popfd
+    pushfd
+    pop eax
+    push ecx                        ; Restore original EFLAGS
+    popfd
+    xor eax, ecx                    ; Did bit 21 change?
+    test eax, 0x00200000
+    jz .no_cpuid
+
+    ; --- CPUID leaf 0: Vendor string -----------------------------------------
+    ; Returns 12-byte vendor ID in EBX:EDX:ECX (e.g. "GenuineIntel").
+    xor eax, eax
+    cpuid
+    mov [cpuid_vendor], ebx
+    mov [cpuid_vendor+4], edx
+    mov [cpuid_vendor+8], ecx
+    mov byte [cpuid_vendor+12], 0
+
+    mov si, msg_cpu_vendor
+    call puts
+    mov si, cpuid_vendor
+    call puts
+    mov si, msg_crlf
+    call puts
+
+    ; --- CPUID leaf 1: Version and feature flags -----------------------------
+    ; EAX bits 11-8 = family, 7-4 = model, 3-0 = stepping
+    ; EDX/ECX = feature flag bitmasks
+    mov eax, 1
+    cpuid
+    mov [cpuid_ver], eax
+    mov [cpuid_feat_edx], edx
+    mov [cpuid_feat_ecx], ecx
+
+    ; Print family
+    mov si, msg_cpu_family
+    call puts
+    mov eax, [cpuid_ver]
+    shr eax, 8
+    and ax, 0x0F
+    call print_dec16
+    mov si, msg_crlf
+    call puts
+
+    ; Print model
+    mov si, msg_cpu_model
+    call puts
+    mov eax, [cpuid_ver]
+    shr eax, 4
+    and ax, 0x0F
+    call print_dec16
+    mov si, msg_crlf
+    call puts
+
+    ; Print stepping
+    mov si, msg_cpu_step
+    call puts
+    mov eax, [cpuid_ver]
+    and ax, 0x0F
+    call print_dec16
+    mov si, msg_crlf
+    call puts
+
+    ; --- Feature flags -------------------------------------------------------
+    ; Print a compact line of supported features from EDX and ECX.
+    mov si, msg_cpu_feat
+    call puts
+
+    mov edx, [cpuid_feat_edx]
+
+    test edx, 1                     ; Bit 0: FPU (x87)
+    jz .no_fpu
+    mov si, msg_f_fpu
+    call puts
+.no_fpu:
+    test edx, (1<<4)                ; Bit 4: TSC (timestamp counter)
+    jz .no_tsc
+    mov si, msg_f_tsc
+    call puts
+.no_tsc:
+    test edx, (1<<5)                ; Bit 5: MSR (model-specific regs)
+    jz .no_msr
+    mov si, msg_f_msr
+    call puts
+.no_msr:
+    test edx, (1<<8)                ; Bit 8: CMPXCHG8B
+    jz .no_cx8
+    mov si, msg_f_cx8
+    call puts
+.no_cx8:
+    test edx, (1<<13)               ; Bit 13: PTE Global Bit
+    jz .no_pge
+    mov si, msg_f_pge
+    call puts
+.no_pge:
+    test edx, (1<<15)               ; Bit 15: CMOV
+    jz .no_cmov
+    mov si, msg_f_cmov
+    call puts
+.no_cmov:
+    test edx, (1<<23)               ; Bit 23: MMX
+    jz .no_mmx
+    mov si, msg_f_mmx
+    call puts
+.no_mmx:
+    test edx, (1<<25)               ; Bit 25: SSE
+    jz .no_sse
+    mov si, msg_f_sse
+    call puts
+.no_sse:
+    test edx, (1<<26)               ; Bit 26: SSE2
+    jz .no_sse2
+    mov si, msg_f_sse2
+    call puts
+.no_sse2:
+
+    mov ecx, [cpuid_feat_ecx]
+
+    test ecx, 1                     ; Bit 0: SSE3
+    jz .no_sse3
+    mov si, msg_f_sse3
+    call puts
+.no_sse3:
+    test ecx, (1<<19)               ; Bit 19: SSE4.1
+    jz .no_sse41
+    mov si, msg_f_sse41
+    call puts
+.no_sse41:
+    test ecx, (1<<20)               ; Bit 20: SSE4.2
+    jz .no_sse42
+    mov si, msg_f_sse42
+    call puts
+.no_sse42:
+
+    mov si, msg_crlf
+    call puts
+
+    ; --- Hypervisor detection ------------------------------------------------
+    ; ECX bit 31 from CPUID leaf 1 indicates a hypervisor is present.
+    mov ecx, [cpuid_feat_ecx]
+    test ecx, (1<<31)
+    jz .no_hypervisor
+
+    mov si, msg_hv_yes
+    call puts
+
+    ; CPUID leaf 0x40000000: hypervisor vendor string (EBX:ECX:EDX)
+    mov eax, 0x40000000
+    cpuid
+    mov [cpuid_vendor], ebx
+    mov [cpuid_vendor+4], ecx
+    mov [cpuid_vendor+8], edx
+    mov byte [cpuid_vendor+12], 0
+
+    mov si, msg_hv_vendor
+    call puts
+    mov si, cpuid_vendor
+    call puts
+    mov si, msg_crlf
+    call puts
+    jmp .cpuid_done
+
+.no_hypervisor:
+    mov si, msg_hv_no
+    call puts
+    jmp .cpuid_done
+
+.no_cpuid:
+    mov si, msg_no_cpuid
+    call puts
+
+.cpuid_done:
+    call wait_key
+
+    ; =========================================================================
+    ; PAGE 2 - Memory
+    ; =========================================================================
+    mov si, msg_page2_hdr
     call puts
 
     ; --- Conventional memory (INT 12h) ---------------------------------------
@@ -458,11 +660,11 @@ cmd_sysinfo:
     call wait_key
 
     ; =========================================================================
-    ; PAGE 2 - BIOS Data Area (BDA)
+    ; PAGE 3 - BIOS Data Area (BDA)
     ;
     ; The BDA lives at linear 0x0400-0x04FF.  We read it directly.
     ; =========================================================================
-    mov si, msg_page2_hdr
+    mov si, msg_page3_hdr
     call puts
 
     ; --- COM ports (serial) at BDA 0x0400-0x0407 ----------------------------
@@ -584,9 +786,9 @@ cmd_sysinfo:
     call wait_key
 
     ; =========================================================================
-    ; PAGE 3 - Video & Disk
+    ; PAGE 4 - Video & Disk
     ; =========================================================================
-    mov si, msg_page3_hdr
+    mov si, msg_page4_hdr
     call puts
 
     ; --- Active video mode (INT 10h AH=0Fh) ----------------------------------
@@ -689,16 +891,78 @@ cmd_sysinfo:
     call puts
 
 .geom_done:
+
+    ; --- EDD (Enhanced Disk Drive) support -----------------------------------
+    ; INT 13h AH=41h checks if EDD extensions are available.
+    ; AH=48h returns extended parameters: total sectors, bytes/sector.
+    mov si, msg_edd_hdr
+    call puts
+    mov dl, [boot_drive]
+    mov bx, 0x55AA
+    mov ah, 0x41
+    int 0x13
+    jc .no_edd
+    cmp bx, 0xAA55
+    jne .no_edd
+
+    ; EDD is supported - AH = version number
+    push ax                         ; Save AH (version)
+
+    mov si, msg_edd_ver
+    call puts
+    pop ax
+    mov al, ah                      ; Version in AH
+    call puthex8
+    mov si, msg_crlf
+    call puts
+
+    ; Get extended drive parameters (AH=48h)
+    ; DS:SI -> result buffer, first word = buffer size
+    mov ah, 0x48
+    mov dl, [boot_drive]
+    mov si, edd_buf
+    mov word [edd_buf], 30          ; Buffer size (26 minimum for v1.x)
+    int 0x13
+    jc .edd_no_params
+
+    ; Total sectors (low 32 bits at offset 16-19, little-endian)
+    mov si, msg_edd_sectors
+    call puts
+    mov ax, [edd_buf+18]            ; High word of low 32 bits
+    call print_hex16
+    mov ax, [edd_buf+16]            ; Low word of low 32 bits
+    call print_hex16
+    mov si, msg_crlf
+    call puts
+
+    ; Bytes per sector (offset 24-25)
+    mov si, msg_edd_bps
+    call puts
+    mov ax, [edd_buf+24]
+    call print_dec16
+    mov si, msg_crlf
+    call puts
+    jmp .edd_done
+
+.edd_no_params:
+    mov si, msg_na
+    call puts
+
+.no_edd:
+    mov si, msg_edd_none
+    call puts
+
+.edd_done:
     call wait_key
 
     ; =========================================================================
-    ; PAGE 4 - IVT Sample (Interrupt Vector Table)
+    ; PAGE 5 - IVT Sample (Interrupt Vector Table)
     ;
     ; The IVT occupies the first 1024 bytes of memory (0x0000-0x03FF).
     ; Each of the 256 entries is a 4-byte far pointer (offset:segment).
     ; We display the first 8 vectors (INT 00h-07h).
     ; =========================================================================
-    mov si, msg_page4_hdr
+    mov si, msg_page5_hdr
     call puts
 
     xor bx, bx                     ; BX = IVT offset (starts at 0x0000)
@@ -978,7 +1242,7 @@ wait_key:
 
 ; --- Shell strings -----------------------------------------------------------
 msg_banner      db 13, 10
-                db '  MNOS v0.2.6', 13, 10
+                db '  MNOS v0.2.7', 13, 10
                 db 13, 10, 0
 
 msg_prompt      db 'mnos:\>', 0
@@ -986,8 +1250,9 @@ msg_prompt      db 'mnos:\>', 0
 msg_unknown     db 'Unknown command: ', 0
 
 msg_help_text   db 'Available commands:', 13, 10
-                db '  sysinfo  - Display system information (4 pages)', 13, 10
+                db '  sysinfo  - Display system information (5 pages)', 13, 10
                 db '  mem      - Detailed memory info and layout', 13, 10
+                db '  ver      - Show version and build info', 13, 10
                 db '  help     - Show this help message', 13, 10
                 db '  cls      - Clear the screen', 13, 10
                 db '  reboot   - Restart the system', 13, 10, 0
@@ -996,14 +1261,25 @@ msg_help_text   db 'Available commands:', 13, 10
 str_sysinfo     db 'sysinfo', 0
 str_help        db 'help', 0
 str_mem         db 'mem', 0
+str_ver         db 'ver', 0
 str_cls         db 'cls', 0
 str_reboot      db 'reboot', 0
 
+; --- ver command strings -----------------------------------------------------
+msg_ver_text    db '  MNOS v0.2.7', 13, 10
+                db '  Arch:      x86 real mode (16-bit)', 13, 10
+                db '  Assembler: NASM', 13, 10
+                db '  Platform:  Hyper-V Gen 1', 13, 10
+                db '  Boot:      MBR -> VBR (16 sectors / 8 KB)', 13, 10
+                db '  Disk:      16 MB fixed VHD', 13, 10
+                db '  Source:    github.com/ambaner/mini-os', 13, 10, 0
+
 ; --- Sysinfo page headers ----------------------------------------------------
-msg_page1_hdr   db '--- Page 1: CPU & Memory ---', 13, 10, 0
-msg_page2_hdr   db 13, 10, '--- Page 2: BIOS Data Area ---', 13, 10, 0
-msg_page3_hdr   db 13, 10, '--- Page 3: Video & Disk ---', 13, 10, 0
-msg_page4_hdr   db 13, 10, '--- Page 4: IVT (Interrupt Vector Table) ---', 13, 10, 0
+msg_page1_hdr   db '--- Page 1: CPU Information ---', 13, 10, 0
+msg_page2_hdr   db 13, 10, '--- Page 2: Memory ---', 13, 10, 0
+msg_page3_hdr   db 13, 10, '--- Page 3: BIOS Data Area ---', 13, 10, 0
+msg_page4_hdr   db 13, 10, '--- Page 4: Video & Disk ---', 13, 10, 0
+msg_page5_hdr   db 13, 10, '--- Page 5: IVT (Interrupt Vector Table) ---', 13, 10, 0
 
 ; --- Page 1 strings ----------------------------------------------------------
 msg_conv_mem    db '  Conv. memory: ', 0
@@ -1081,6 +1357,40 @@ msg_layout      db '    0x00000-0x003FF  1 KB    IVT (Interrupt Vector Table)', 
                 db '    0x0C000-0x0FFFF  16 KB   ROM area (BIOS, VGA BIOS)', 13, 10
                 db '    0x10000-0xFFFFF  960 KB  Extended area (requires A20)', 13, 10, 0
 
+; --- CPU information strings --------------------------------------------------
+msg_cpu_vendor  db '  Vendor:     ', 0
+msg_cpu_family  db '  Family:     ', 0
+msg_cpu_model   db '  Model:      ', 0
+msg_cpu_step    db '  Stepping:   ', 0
+msg_cpu_feat    db '  Features:   ', 0
+msg_no_cpuid    db '  CPUID not supported (pre-486 CPU)', 13, 10, 0
+
+; Feature flag tag strings (printed inline, space-separated)
+msg_f_fpu       db 'FPU ', 0
+msg_f_tsc       db 'TSC ', 0
+msg_f_msr       db 'MSR ', 0
+msg_f_cx8       db 'CX8 ', 0
+msg_f_pge       db 'PGE ', 0
+msg_f_cmov      db 'CMOV ', 0
+msg_f_mmx       db 'MMX ', 0
+msg_f_sse       db 'SSE ', 0
+msg_f_sse2      db 'SSE2 ', 0
+msg_f_sse3      db 'SSE3 ', 0
+msg_f_sse41     db 'SSE4.1 ', 0
+msg_f_sse42     db 'SSE4.2 ', 0
+
+; Hypervisor detection strings
+msg_hv_yes      db '  Hypervisor: Yes', 13, 10, 0
+msg_hv_no       db '  Hypervisor: No', 13, 10, 0
+msg_hv_vendor   db '  HV Vendor:  ', 0
+
+; --- EDD (Enhanced Disk Drive) strings ---------------------------------------
+msg_edd_hdr     db '  EDD Support:', 13, 10, 0
+msg_edd_ver     db '    Version:       ', 0
+msg_edd_sectors db '    Total sectors: ', 0
+msg_edd_bps     db '    Bytes/sector:  ', 0
+msg_edd_none    db '    Not available', 13, 10, 0
+
 ; --- Shared strings ----------------------------------------------------------
 msg_crlf        db 13, 10, 0
 msg_indent      db '    ', 0
@@ -1097,6 +1407,15 @@ cmd_len         db 0
 
 ; E820 buffer - one memory map entry (20 bytes)
 e820_buf        times 20 db 0
+
+; CPUID scratch space
+cpuid_vendor    times 13 db 0       ; 12-byte vendor string + NUL
+cpuid_ver       dd 0                ; Version info (family/model/stepping)
+cpuid_feat_edx  dd 0                ; Feature flags (EDX from leaf 1)
+cpuid_feat_ecx  dd 0                ; Feature flags (ECX from leaf 1)
+
+; EDD extended drive parameters buffer (30 bytes)
+edd_buf         times 30 db 0
 
 ; =============================================================================
 ; PADDING - fill remainder of 16-sector (8 KB) boot area with zeros

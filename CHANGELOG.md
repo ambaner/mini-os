@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.7] — 2026-05-11
+
+### Added
+- **`ver` command** — displays version, architecture, assembler, platform, boot chain, disk, and source URL
+- **`sysinfo` CPU page** — new Page 1 with CPUID-based information:
+  - Vendor string (e.g., "GenuineIntel")
+  - Family, model, stepping numbers
+  - Feature flags (FPU, TSC, MSR, CX8, PGE, CMOV, MMX, SSE, SSE2, SSE3, SSE4.1, SSE4.2)
+  - Hypervisor detection and vendor string (e.g., "Microsoft Hv")
+- **`sysinfo` EDD disk info** — Enhanced Disk Drive support on the disk page:
+  - EDD version number
+  - Total sector count (32-bit hex)
+  - Bytes per sector
+
+### Changed
+- Sysinfo expanded from 4 pages to 5 pages (CPU, Memory, BDA, Video & Disk, IVT)
+- Help text updated to include `ver` command
+- Version banner updated to v0.2.7
+
 ## [0.2.6] — 2026-05-11
 
 ### Added
@@ -13,7 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Conventional memory (INT 12h)
   - Extended memory (INT 15h AH=88h)
   - A20 gate status (wrap-around test at 0x0000:0x0500 vs 0xFFFF:0x0510)
-  - Real-mode memory layout map (IVT, BDA, free area, boot area, video, ROM)
+  - Real-mode memory layout map with sizes (IVT, BDA, free area, boot area, video, ROM)
   - E820 BIOS memory map with type labels
 
 ### Changed

@@ -1,9 +1,9 @@
 # mini-os
 
-A minimalistic operating system, built from scratch.
-Currently: MBR reads the partition table, chain-loads a multi-sector VBR, and the VBR
-drops into an interactive shell (`mnos:\>`) where you can run commands like `sysinfo`
-to display system information.
+A minimalistic operating system, built from scratch — currently at **v0.2.7**.
+MBR reads the partition table, chain-loads a multi-sector VBR, and the VBR
+drops into an interactive shell (`mnos:\>`) with commands for system info,
+CPU details, memory diagnostics, version info, and more.
 
 ![mini-os booting in Hyper-V](doc/booted.gif)
 
@@ -43,12 +43,21 @@ The script will prompt for a VM name and location (defaults are fine), then crea
 You should see the MBR banner and partition table info, then the shell:
 
 ```
-  MNOS v0.2.5
+  MNOS v0.2.7
 
 mnos:\>
 ```
 
-Type `help` for a list of commands, or `sysinfo` for system information.
+Type `help` for a list of commands:
+
+| Command | Description |
+|---------|-------------|
+| `sysinfo` | 5 pages of hardware info (CPU/CPUID, memory/E820, BDA, video/disk/EDD, IVT) |
+| `mem` | Memory diagnostics — conventional/extended RAM, A20 gate, layout, E820 map |
+| `ver` | Version, architecture, platform, and build info |
+| `help` | List available commands |
+| `cls` | Clear screen |
+| `reboot` | Warm reboot |
 
 ```powershell
 Start-VM -Name 'mini-os'           # start the VM
@@ -109,6 +118,7 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.2.2` | **System info display** | VBR shows 4 pages of hardware info (memory, BDA, video/disk, IVT) |
 | `v0.2.5` | **M2 — Interactive shell** | `mnos:\>` prompt with `sysinfo`, `help`, `cls`, `reboot` commands |
 | `v0.2.6` | **`mem` command** | Detailed memory info: conventional/extended RAM, A20 gate status, memory layout, E820 map |
+| `v0.2.7` | **`ver` + CPU/EDD sysinfo** | Version command, CPUID details page, EDD disk info, sysinfo now 5 pages |
 
 ```cmd
 git checkout v0.1.0      # see the project at any prior milestone
