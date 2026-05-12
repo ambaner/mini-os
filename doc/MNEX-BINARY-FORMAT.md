@@ -646,7 +646,43 @@ Same pipeline as Phase 2, but:
 - Magic changes from `MNKN` (same) — only `cpu_mode` changes from 1 to 2
 - `cpu_mode` field = 2
 
-### 6.4 wrap-mnex.ps1 — Header Stamper
+### 6.4 User-Mode C Executables (Phase 2+)
+
+Starting in Phase 2, user-mode executables (MNEX binaries) can be written
+in C.  The build pipeline mirrors the kernel pipeline, but produces MNEX
+(not MNKN) binaries and uses a user-mode linker script with the appropriate
+load address:
+
+```
+src/apps/hello.c ──── clang --target=i686-elf ──→ hello.o
+                                                     │
+                                                ld.lld -T user.ld
+                                                     │
+                                                hello.elf
+                                                     │
+                                                llvm-objcopy -O binary
+                                                     │
+                                                hello.raw (flat binary)
+                                                     │
+                                                tools/wrap-mnex.ps1 -Magic MNEX -CpuMode 1
+                                                     │
+                                                build/apps/hello.bin
+                                                (MNEX header + flat binary)
+```
+
+C executables call kernel syscalls via inline assembly wrappers in
+`mnos_syscall.h`.  The application never executes `int $0x80` directly —
+it calls typed C functions like `print()`, `readkey()`, and `cls()`.
+
+See [SYSTEM-CALLS.md §7.4](SYSTEM-CALLS.md#74-c-language-bindings) for the
+complete `mnos_syscall.h` header, example programs, and the 16→32-bit
+transition strategy.
+
+> **16-bit limitation**: Clang cannot generate 16-bit real-mode code.  The
+> 16-bit kernel and shell must remain in NASM assembly.  C support begins
+> with the 32-bit protected-mode kernel (Phase 2).
+
+### 6.5 wrap-mnex.ps1 — Header Stamper
 
 This script takes a flat binary and prepends the 32-byte MNEX header:
 

@@ -358,9 +358,17 @@ The choice of vector number is arbitrary — any unused vector works.  We use
 | No separate address spaces | Shell can read/write kernel data |
 | Shared stack | Kernel and shell use the same stack segment |
 | No preemption | Kernel cannot forcibly interrupt a misbehaving shell |
+| No C compiler support | Clang does not support 16-bit x86 code generation |
 
 These limitations are inherent to real mode and are resolved by switching
 to protected mode (§3).
+
+> **Why no C in 16-bit?**  Clang (and GCC's cross-compiler) cannot emit
+> 16-bit real-mode code.  The NASM assembler is the only option for the
+> 16-bit kernel and shell.  Starting in Phase 2 (32-bit protected mode),
+> both kernel and user-mode code can be written in C — the same `int 0x80`
+> syscall interface works from inline assembly in C, and the syscall numbers
+> remain stable across the transition (see §7.4).
 
 ---
 
@@ -1040,6 +1048,244 @@ Once a number is assigned, it never changes.  New syscalls are added at the
 end.  This means a 16-bit MNEX executable can be "conceptually" source-
 compatible with its 32-bit counterpart — the function numbers are the same,
 only the register convention and invocation instruction differ.
+
+### 7.4 C Language Bindings
+
+The 16-bit phase (Phase 1) requires NASM assembly because **Clang does not
+support 16-bit x86 code generation**.  Starting in Phase 2 (32-bit protected
+mode), both kernel handlers and user-mode executables can be written in C.
+The `int 0x80` syscall mechanism works identically from C via inline assembly.
+
+#### Why Clang Can't Target 16-bit
+
+Clang's x86 backend targets `i686` (32-bit) and `x86_64` (64-bit) only.
+There is no `--target=i8086-elf` or real-mode codegen.  GCC has the same
+limitation.  The 16-bit kernel and shell must remain in NASM assembly.
+
+This is actually a clean architectural boundary: 16-bit is the "bootstrap
+and learning" phase where assembly is the natural language, while 32/64-bit
+is where C becomes practical and necessary.
+
+#### User-Mode Syscall Library (`mnos_syscall.h`)
+
+When user-mode code transitions to C, every syscall gets a thin inline
+wrapper.  Application code never writes `int $0x80` directly — it calls
+typed C functions from this header:
+
+```c
+/* ═══════════════════════════════════════════════════════════════ */
+/* mnos_syscall.h — mini-os user-mode syscall wrappers            */
+/*                                                                */
+/* This header is the ONLY place where 'int $0x80' (32-bit) or   */
+/* 'syscall' (64-bit) appears in user code.  Every application    */
+/* and the shell include this header — they never touch hardware  */
+/* directly.                                                      */
+/*                                                                */
+/* The syscall numbers match the kernel's dispatch table and are  */
+/* stable across versions (see §7.3 Stability Guarantee).         */
+/* ═══════════════════════════════════════════════════════════════ */
+
+#ifndef MNOS_SYSCALL_H
+#define MNOS_SYSCALL_H
+
+#include <stdint.h>
+
+/* --- Syscall function numbers (must match kernel) --------------- */
+#define SYS_PRINT_STRING   0x01
+#define SYS_PRINT_CHAR     0x02
+#define SYS_READ_KEY       0x03
+#define SYS_READ_SECTOR    0x04
+#define SYS_GET_VERSION    0x05
+#define SYS_CLEAR_SCREEN   0x06
+#define SYS_SET_CURSOR     0x07
+#define SYS_GET_CURSOR     0x08
+#define SYS_REBOOT         0x0D
+
+/* --- Low-level syscall invokers --------------------------------- */
+
+/* 32-bit: uses int $0x80, function number in EAX */
+#ifdef __i386__
+
+static inline int32_t _syscall0(uint32_t num) {
+    int32_t ret;
+    __asm__ volatile(
+        "int $0x80"
+        : "=a"(ret)
+        : "a"(num)
+        : "memory"
+    );
+    return ret;
+}
+
+static inline int32_t _syscall1(uint32_t num, uint32_t arg1) {
+    int32_t ret;
+    __asm__ volatile(
+        "int $0x80"
+        : "=a"(ret)
+        : "a"(num), "b"(arg1)
+        : "memory"
+    );
+    return ret;
+}
+
+static inline int32_t _syscall2(uint32_t num, uint32_t a1, uint32_t a2) {
+    int32_t ret;
+    __asm__ volatile(
+        "int $0x80"
+        : "=a"(ret)
+        : "a"(num), "b"(a1), "c"(a2)
+        : "memory"
+    );
+    return ret;
+}
+
+#endif /* __i386__ */
+
+/* 64-bit: uses syscall instruction, function number in RAX */
+#ifdef __x86_64__
+
+static inline int64_t _syscall0(uint64_t num) {
+    int64_t ret;
+    __asm__ volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(num)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static inline int64_t _syscall1(uint64_t num, uint64_t arg1) {
+    int64_t ret;
+    __asm__ volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(num), "D"(arg1)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static inline int64_t _syscall2(uint64_t num, uint64_t a1, uint64_t a2) {
+    int64_t ret;
+    __asm__ volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(num), "D"(a1), "S"(a2)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+#endif /* __x86_64__ */
+
+/* --- Public API ------------------------------------------------- */
+/* These are the functions user code actually calls.               */
+
+static inline void print(const char *s)  { _syscall1(SYS_PRINT_STRING, (uintptr_t)s); }
+static inline void putchar(char c)       { _syscall1(SYS_PRINT_CHAR, (uint8_t)c); }
+static inline int  readkey(void)         { return _syscall0(SYS_READ_KEY); }
+static inline void cls(void)             { _syscall0(SYS_CLEAR_SCREEN); }
+static inline void reboot(void)          { _syscall0(SYS_REBOOT); }
+static inline int  version(void)         { return _syscall0(SYS_GET_VERSION); }
+static inline void set_cursor(int r, int c) {
+    _syscall2(SYS_SET_CURSOR, (uint32_t)r, (uint32_t)c);
+}
+
+#endif /* MNOS_SYSCALL_H */
+```
+
+#### Example: A User-Mode C Program
+
+```c
+/* hello.c — minimal MNEX user-mode executable */
+#include "mnos_syscall.h"
+
+void _start(void) {
+    cls();
+    print("Hello from C!\n");
+    print("mini-os version: ");
+
+    int ver = version();
+    /* ver: high byte = major, low byte = minor */
+    putchar('0' + (ver >> 8));
+    putchar('.');
+    putchar('0' + (ver & 0xFF));
+    putchar('\n');
+
+    print("Press any key to continue...\n");
+    readkey();
+    reboot();
+}
+```
+
+#### Build Pipeline for C User-Mode Executables
+
+```
+hello.c ──── clang --target=i686-elf ──→ hello.o
+                                            │
+                                       ld.lld -T user.ld
+                                            │
+                                       hello.elf
+                                            │
+                                       llvm-objcopy -O binary
+                                            │
+                                       hello.raw (flat binary)
+                                            │
+                                       tools/wrap-mnex.ps1 -Magic MNEX -CpuMode 1
+                                            │
+                                       hello.bin (MNEX header + flat binary)
+```
+
+**Clang flags** (user-mode — same freestanding flags as the kernel):
+```
+clang                          \
+    --target=i686-elf          \  32-bit x86, no OS
+    -ffreestanding             \  No standard library assumptions
+    -fno-builtin               \  Don't replace code with libc calls
+    -nostdlib                  \  Don't link standard C library
+    -nostdinc                  \  Don't search system include paths
+    -fno-stack-protector       \  No stack canaries
+    -fno-pic                   \  No position-independent code
+    -O2 -Wall -Wextra          \  Optimise + warnings
+    -c hello.c -o hello.o         Compile only
+```
+
+**Linker script** (`user.ld`):
+```ld
+OUTPUT_FORMAT(elf32-i386)
+ENTRY(_start)
+
+SECTIONS {
+    /* Skip 32 bytes for MNEX header (added by wrap-mnex.ps1) */
+    . = 0x20;
+
+    .text : { *(.text) }
+    .rodata : { *(.rodata*) }
+    .data : { *(.data) }
+    .bss : { *(.bss) }
+}
+```
+
+#### Transition Strategy: 16-bit ASM → 32-bit C
+
+The transition from Phase 1 to Phase 2 is designed to be smooth:
+
+| Aspect | Phase 1 (16-bit) | Phase 2 (32-bit) |
+|--------|-------------------|-------------------|
+| **Kernel language** | NASM assembly | C + NASM entry stub |
+| **Shell language** | NASM assembly | C (with `mnos_syscall.h`) |
+| **Syscall mechanism** | `int 0x80` via IVT | `int 0x80` via IDT |
+| **Syscall numbers** | AH register | EAX register |
+| **Function numbers** | Same (0x01, 0x02, ...) | Same (0x01, 0x02, ...) |
+| **Compiler** | NASM only | Clang + NASM |
+| **Binary format** | MNEX 32-byte header | MNEX 32-byte header (identical) |
+
+The key insight: **the syscall numbers are the stable contract**.  A `print`
+call in 16-bit assembly (`mov ah, 0x01 / int 0x80`) and in 32-bit C
+(`_syscall1(0x01, str)`) use the same function number.  Only the delivery
+mechanism (register width, IVT vs IDT) changes — and that's handled
+transparently by the inline assembly in `mnos_syscall.h`.
 
 ---
 
