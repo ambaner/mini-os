@@ -76,7 +76,8 @@ mini-os/
 ├── doc/
 │   ├── DESIGN.md             # Architecture & design document
 │   ├── BOOT-LAYOUT-RATIONALE.md  # Boot chain design rationale (DOS/Windows/Linux comparisons)
-│   └── MEMORY-LAYOUT.md      # Memory map, stack analysis, protected-mode roadmap
+│   ├── MEMORY-LAYOUT.md      # Memory map, stack analysis, protected-mode roadmap
+│   └── CPU-MODES-AND-TRANSITIONS.md  # 16→32→64-bit journey, BIOS vs UEFI
 ├── src/
 │   ├── boot/
 │   │   ├── mbr.asm           # MBR — partition table scan + VBR chain-load
@@ -123,6 +124,11 @@ Additional deep-dive documents:
 - **[doc/MEMORY-LAYOUT.md](doc/MEMORY-LAYOUT.md)** — Exhaustive real-mode memory map showing
   every region (IVT, BDA, BIB, LOADER, SHELL, stack). Stack sizing analysis,
   transient vs. permanent memory, and the roadmap from A20 to protected mode.
+
+- **[doc/CPU-MODES-AND-TRANSITIONS.md](doc/CPU-MODES-AND-TRANSITIONS.md)** — The complete
+  journey from 16-bit real mode to 32-bit protected mode to 64-bit long mode.
+  GDT, IDT, paging, hardware drivers (VGA, keyboard, ATA), PIC remapping, and
+  a detailed BIOS vs UEFI comparison.
 
 ## Version History
 
