@@ -245,23 +245,25 @@ syscall_handler:
     iret                                ; Return both in AX
 
 ; ─── SYS_READ_SECTOR (AH=0x04) ───────────────────────────────────
-; Input:  EAX = LBA sector number
+; Input:  EDI = LBA sector number (NOT EAX — avoids AH clobber)
 ;         ES:BX = buffer to read into
 ;         CL = number of sectors to read
 ; Output: CF clear = success, CF set = error
+; Note:   Uses syscall_ret_cf (sti; retf 2) to preserve CF across
+;         the return — iret would restore caller's FLAGS and lose CF.
 ; ──────────────────────────────────────────────────────────────────
 .fn_read_sector:
-    ; (Implementation would use BIOS int 13h extended read
+    ; (Implementation uses BIOS int 13h extended read
     ;  with a DAP structure, similar to the current loader)
     ; ...
-    iret
+    syscall_ret_cf                      ; Preserve CF for caller
 
 ; ─── SYS_GET_VERSION (AH=0x05) ───────────────────────────────────
 ; Input:  none
 ; Output: AH = major version, AL = minor version
 ; ──────────────────────────────────────────────────────────────────
 .fn_get_version:
-    mov ax, 0x0500                      ; Version 5.0
+    mov ax, 0x0600                      ; Version 6.0
     iret
 
 ; ─── Function number constants ────────────────────────────────────
@@ -1048,6 +1050,39 @@ Once a number is assigned, it never changes.  New syscalls are added at the
 end.  This means a 16-bit MNEX executable can be "conceptually" source-
 compatible with its 32-bit counterpart — the function numbers are the same,
 only the register convention and invocation instruction differ.
+
+### 7.3.1 ABI Notes — The AH Register Overlap
+
+In the 16-bit phase, AH carries the syscall function number.  Since AH is
+bits 8-15 of AX (and EAX), any syscall that also passes data in AX or EAX
+has a collision — `mov ah, SYS_xxx` silently clobbers the caller's value.
+
+Three syscalls were affected and their input registers were changed in v0.6.0:
+
+| Syscall | Old Input | New Input | Reason |
+|---------|-----------|-----------|--------|
+| `SYS_READ_SECTOR` (0x04) | EAX = LBA | **EDI** = LBA | AH clobbered bits 8-15 of LBA |
+| `SYS_PRINT_HEX16` (0x11) | AX = value | **DX** = value | AH clobbered high byte of value |
+| `SYS_PRINT_DEC16` (0x12) | AX = value | **DX** = value | AH clobbered high byte of value |
+
+Syscalls that use AL only (e.g., `SYS_PRINT_CHAR`, `SYS_PRINT_HEX8`) are
+unaffected because AL does not overlap AH.
+
+### 7.3.2 CF Propagation — `syscall_ret_cf`
+
+Syscall handlers that return a success/failure status via the carry flag (CF)
+cannot use `iret` to return.  `IRET` pops the caller's saved FLAGS from the
+stack, discarding the handler's CF.  Instead, these handlers use:
+
+```nasm
+%macro syscall_ret_cf 0
+    sti                  ; Re-enable interrupts (INT clears IF)
+    retf 2               ; Pop IP+CS, skip saved FLAGS (+2)
+%endmacro                ; Caller sees handler's FLAGS (with CF)
+```
+
+This applies to: `.fn_read_sector`, `.fn_get_ext_mem`, `.fn_get_e820`,
+`.fn_get_drive_info`, `.fn_get_edd`, and `.sc_unknown`.
 
 ### 7.4 C Language Bindings
 

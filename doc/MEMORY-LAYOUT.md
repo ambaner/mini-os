@@ -52,7 +52,7 @@ or data in real mode — they are memory-mapped hardware regions.
 
 ---
 
-## 2. mini-os Memory Map (v0.4.0)
+## 2. mini-os Memory Map (v0.6.0)
 
 mini-os uses the lower portion of conventional memory (0x0500–0x7FFF).  The
 layout was designed around four constraints:
@@ -132,30 +132,37 @@ available but is sometimes used by BIOS for temporary purposes during POST.
 We chose 0x0600 to avoid any possible conflict, while keeping it low enough
 that no boot binary would be placed there.
 
-#### LOADER.BIN — 0x0800 (up to 8 KB)
+#### FS.BIN / LOADER.BIN — 0x0800 (up to 8 KB)
 
-The VBR loads LOADER.BIN to linear address 0x0800 (segment 0x0000, offset
-0x0800).  The loader is assembled with `[ORG 0x0800]`.
+This memory region serves a dual purpose:
 
-**Contents** (v0.5.0): A20 gate enablement (3 methods + verification), disk
-read for KERNEL.BIN, magic number check, jump to kernel.
+1. **Boot time**: The VBR loads LOADER.BIN here.  The loader enables A20, loads
+   the kernel to 0x5000, and jumps to it.  After the jump, LOADER's code is dead.
+
+2. **Runtime**: The kernel then loads FS.BIN to the same address (0x0800),
+   overwriting the now-dead loader.  FS.BIN installs the INT 0x81 filesystem
+   handler and caches the MNFS directory table in a 512-byte buffer.
+
+**Contents** (v0.6.0): INT 0x81 dispatcher with 4 functions (list, find, read,
+get_info), 512-byte directory cache, initialization routine.
 
 **Current size**: 2 sectors (1024 bytes).  **Maximum**: 16 sectors (8192 bytes)
-ending at 0x27FF.  This leaves a comfortable gap before SHELL.BIN at 0x3000.
+ending at 0x27FF.
 
-**Lifetime**: The loader runs, loads the kernel, and jumps to it.  After the
-jump, the loader's code is technically dead — but the memory is not reclaimed.
+**Lifetime**: Permanent after kernel init — FS.BIN must remain resident because
+all user-mode filesystem access (e.g., `dir` command) calls INT 0x81.
 
 #### KERNEL.BIN — 0x5000 (up to 8 KB)
 
 The loader loads KERNEL.BIN to linear address 0x5000 (segment 0x0000, offset
 0x5000).  The kernel is assembled with `[ORG 0x5000]`.
 
-**Contents** (v0.5.0): INT 0x80 IVT installation, 27 syscall handlers wrapping
+**Contents** (v0.6.0): INT 0x80 IVT installation, 27 syscall handlers wrapping
 BIOS interrupts (video, keyboard, disk, memory, CPUID, BDA access, etc.),
-SHELL.BIN loading from disk, version info, and utility functions.
+find_file.inc for MNFS directory lookup, loads FS.BIN and SHELL.BIN from disk,
+version info, and utility functions.
 
-**Current size**: 4 sectors (2048 bytes), ending at 0x57FF.  **Maximum**:
+**Current size**: 6 sectors (3072 bytes), ending at 0x5BFF.  **Maximum**:
 16 sectors (8192 bytes), ending at 0x6FFF.
 
 **Lifetime**: Permanent — the kernel must remain resident for the entire OS
@@ -166,11 +173,11 @@ runtime because the shell and all user-mode programs call into it via INT 0x80.
 The kernel loads SHELL.BIN to linear address 0x3000 (segment 0x0000, offset
 0x3000).  The shell is assembled with `[ORG 0x3000]`.
 
-**Contents** (v0.5.0): Command loop, all shell commands (sysinfo, mem, ver,
-help, cls, reboot), thin syscall wrappers (all hardware access via INT 0x80),
-strcmp, readline, string constants, and runtime data buffers.
+**Contents** (v0.6.0): Command loop, all shell commands (sysinfo, mem, dir, ver,
+help, cls, reboot), thin syscall wrappers (hardware via INT 0x80, filesystem via
+INT 0x81), strcmp, readline, string constants, and runtime data buffers.
 
-**Current size**: 10 sectors (5120 bytes), ending at 0x43FF.  **Maximum**:
+**Current size**: 12 sectors (6144 bytes), ending at 0x47FF.  **Maximum**:
 16 sectors (8192 bytes), ending at 0x4FFF.  The kernel at 0x5000 sets the
 upper boundary.
 

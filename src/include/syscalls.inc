@@ -17,7 +17,7 @@
 SYS_PRINT_STRING  equ 0x01          ; DS:SI = NUL-terminated string
 SYS_PRINT_CHAR    equ 0x02          ; AL = character to print
 SYS_READ_KEY      equ 0x03          ; Returns: AH=scancode, AL=ASCII
-SYS_READ_SECTOR   equ 0x04          ; EAX=LBA, ES:BX=buffer, CL=count
+SYS_READ_SECTOR   equ 0x04          ; EDI=LBA, ES:BX=buffer, CL=count
 SYS_GET_VERSION   equ 0x05          ; Returns: AH=major, AL=minor
 SYS_CLEAR_SCREEN  equ 0x06          ; No arguments
 SYS_SET_CURSOR    equ 0x07          ; DH=row, DL=column
@@ -30,8 +30,8 @@ SYS_REBOOT        equ 0x0D          ; Warm reboot (does not return)
 SYS_GET_DRIVE_INFO equ 0x0E         ; Returns: drive geometry, CF=error
 SYS_GET_BIB       equ 0x0F          ; Returns: ES:BX = BIB address
 SYS_PRINT_HEX8    equ 0x10          ; AL = byte to print as hex
-SYS_PRINT_HEX16   equ 0x11          ; AX = word to print as hex
-SYS_PRINT_DEC16   equ 0x12          ; AX = word to print as decimal
+SYS_PRINT_HEX16   equ 0x11          ; DX = word to print as hex
+SYS_PRINT_DEC16   equ 0x12          ; DX = word to print as decimal
 SYS_WAIT_KEY      equ 0x13          ; Print prompt, wait, clear screen
 SYS_GET_EQUIP     equ 0x14          ; Returns: AX = equipment word
 SYS_GET_VIDEO     equ 0x15          ; Returns: AL=mode, AH=cols, BH=page

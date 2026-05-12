@@ -4,8 +4,8 @@
 ; This is the first-stage bootloader within the partition.  The MBR loads
 ; this code from the partition's first sector(s) into memory at 0x7C00.
 ;
-; The VBR's only job is to load LOADER.BIN from a fixed offset within the
-; partition, populate the Boot Info Block (BIB), and transfer control to it.
+; The VBR's only job is to find LOADER.BIN in the MNFS directory, load it
+; into memory, populate the Boot Info Block (BIB), and transfer control.
 ;
 ; VBR Header layout (starts at byte 0 of the partition):
 ;   Offset 0:   EB xx      JMP SHORT past the header
@@ -19,18 +19,15 @@
 ;   Offset 1:   a20_status  (1 byte)  — set by LOADER.BIN
 ;   Offset 2:   part_lba    (4 bytes) — partition start LBA
 ;
-; Partition disk layout:
-;   Offset 0:  VBR         (2 sectors)
-;   Offset 4:  LOADER.BIN  (up to 16 sectors)
-;   Offset 20: KERNEL.BIN  (up to 16 sectors)
-;   Offset 36: SHELL.BIN   (up to 32 sectors)
+; The MNFS directory table is at partition sector 2.  VBR reads it to
+; find LOADER.BIN's start sector (no hardcoded file offsets).
 ;
 ; Assembled with:  nasm -f bin -o vbr.bin src/boot/vbr.asm
 ; =============================================================================
 
 %include "bib.inc"
 %include "memory.inc"
-%include "disk.inc"
+%include "mnfs.inc"
 
 [BITS 16]                           ; 16-bit real mode
 [ORG 0x7C00]                        ; MBR copies us here before jumping
@@ -69,27 +66,36 @@ vbr_code:
 
     mov byte [BIB_A20], 0           ; Clear A20 status (loader will set it)
 
-    ; --- Load LOADER.BIN using shared load_mnex subroutine -------------------
-    mov eax, LOADER_PART_OFF        ; Partition-relative sector offset
+    ; --- Find LOADER.BIN in MNFS directory -----------------------------------
+    mov bx, LOADER_OFF              ; Scratch buffer = LOADER load address
+    mov si, fname_loader            ; 11-byte "8.3" filename
+    call find_file
+    jc .vbr_fail
+
+    ; EAX = partition-relative start sector, CX = size in sectors
     mov bx, LOADER_OFF              ; Load address (segment 0x0000)
     mov ecx, 'MNLD'                 ; Expected magic signature
-    mov dh, LOADER_MAX_SEC          ; Maximum sector count
+    mov dh, 16                      ; Maximum sector count
     call load_mnex
-    jc .load_err
+    jc .vbr_fail
 
-    ; --- Jump to LOADER.BIN -------------------------------------------------
-    jmp LOADER_SEG:LOADER_OFF       ; Far jump to loader at 0x0000:0x0800
+    ; --- Boot status: LOADER.BIN loaded successfully -------------------------
+    mov si, msg_loader
+    call boot_ok
 
-; --- Error handler -----------------------------------------------------------
-.load_err:
-    mov si, msg_err
-    call puts
-.halt:
-    cli
-    hlt
+    ; --- Transfer control to LOADER.BIN --------------------------------------
+    ; Skip the 6-byte MNEX header (magic + sector count) to reach code entry.
+    jmp LOADER_SEG:LOADER_OFF + MNEX_HDR_SIZE
 
-; --- Shared binary loader (from src/include/load_binary.inc) -----------------
+; --- Error handler (fatal — prints [FAIL] and halts) -------------------------
+.vbr_fail:
+    mov si, msg_loader
+    call boot_fail
+
+; --- Shared subroutines (from src/include/) -----------------------------------
+%include "find_file.inc"
 %include "load_binary.inc"
+%include "boot_msg.inc"
 
 ; --- Subroutines (minimal, just what VBR needs) ------------------------------
 
@@ -106,7 +112,10 @@ puts:
     ret
 
 ; --- Data --------------------------------------------------------------------
-msg_err     db 'VBR: Load error', 0
+msg_loader  db 'LOADER.BIN', 0
+
+; 11-byte "8.3" filename for directory lookup (8 name + 3 ext, space-padded)
+fname_loader db 'LOADER  BIN'
 
 ; --- Disk Address Packet (DAP) for INT 13h AH=42h ---------------------------
 dap:

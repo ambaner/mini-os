@@ -5,13 +5,14 @@
 ; in mini-os that acts as a proper kernel:
 ;
 ;   1. Installs a syscall handler at INT 0x80 in the IVT
-;   2. Loads SHELL.BIN (an MNEX user-mode executable) from disk
-;   3. Transfers control to the shell
+;   2. Finds and loads FS.BIN (filesystem module) from the MNFS directory
+;   3. Calls FS.BIN init to install INT 0x81
+;   4. Finds and loads SHELL.BIN (user-mode executable) from the MNFS directory
+;   5. Transfers control to the shell
 ;
 ; The shell and all user-mode programs interact with hardware exclusively
-; through the INT 0x80 syscall interface.  The kernel wraps BIOS interrupts
-; internally, establishing the architectural pattern that carries forward
-; to 32-bit (IDT + ring 0) and 64-bit (SYSCALL instruction) modes.
+; through the INT 0x80 syscall interface.  Filesystem operations use INT 0x81
+; (provided by FS.BIN).
 ;
 ; Syscall convention:
 ;   AH = function number
@@ -32,7 +33,7 @@
 
 %include "bib.inc"
 %include "memory.inc"
-%include "disk.inc"
+%include "mnfs.inc"
 %include "syscalls.inc"
 
 [BITS 16]
@@ -42,7 +43,7 @@
 ; KERNEL HEADER
 ; =============================================================================
 kernel_magic    db 'MNKN'           ; Magic identifier — kernel
-kernel_sectors  dw 4                ; Kernel size in sectors (updated as needed)
+kernel_sectors  dw 6                ; Kernel size in sectors (updated as needed)
 
 ; =============================================================================
 ; KERNEL ENTRY POINT
@@ -51,27 +52,78 @@ kernel_start:
     ; --- Install syscall handler at INT 0x80 ----------------------------------
     call install_syscalls
 
-    ; --- Load SHELL.BIN using shared load_mnex subroutine --------------------
-    mov eax, SHELL_PART_OFF         ; Partition-relative sector offset
+    mov si, msg_syscall
+    call boot_ok
+
+    ; --- Load FS.BIN (filesystem module) at 0x0800 ---------------------------
+    ; FS.BIN replaces LOADER.BIN in memory (LOADER's job is done).
+    ; Use 0x3000 (shell area) as scratch buffer for directory read.
+    mov bx, SHELL_OFF               ; Scratch buffer (shell not loaded yet)
+    mov si, fname_fs                ; "FS      BIN"
+    call find_file
+    jc .fs_find_fail
+
+    ; EAX = partition-relative start sector, CX = size in sectors
+    mov bx, LOADER_OFF              ; Load FS.BIN at 0x0800 (LOADER's old slot)
+    mov ecx, 'MNFS'                 ; Expected magic signature
+    mov dh, 16                      ; Maximum sector count
+    call load_mnex
+    jc .fs_load_fail
+
+    mov si, msg_fs
+    call boot_ok
+
+    ; --- Initialize FS.BIN (installs INT 0x81) --------------------------------
+    ; FS.BIN's init entry point is at offset 6 (right after the 6-byte header).
+    call LOADER_OFF + MNEX_HDR_SIZE
+    jc .fs_init_fail
+
+    mov si, msg_fs_init
+    call boot_ok
+
+    ; --- Load SHELL.BIN at 0x3000 --------------------------------------------
+    ; Use 0x2000 as scratch buffer for directory read (safe — between LOADER
+    ; area and SHELL area, and FS.BIN at 0x0800 is only ~1 KB).
+    mov bx, 0x2000                  ; Scratch buffer
+    mov si, fname_shell             ; "SHELL   BIN"
+    call find_file
+    jc .shell_find_fail
+
+    ; EAX = partition-relative start sector, CX = size in sectors
     mov bx, SHELL_OFF               ; Load address (segment 0x0000)
     mov ecx, 'MNEX'                 ; Expected magic signature
-    mov dh, SHELL_MAX_SEC           ; Maximum sector count
+    mov dh, 32                      ; Maximum sector count
     call load_mnex
-    jc .shell_fail
+    jc .shell_load_fail
+
+    mov si, msg_shell
+    call boot_ok
 
     ; --- Transfer control to shell --------------------------------------------
     ; The shell is a user-mode executable.  When it calls INT 0x80, the CPU
     ; jumps to our syscall_handler via the IVT entry we installed above.
-    jmp SHELL_SEG:SHELL_OFF
+    ; Skip the 6-byte MNEX header (magic + sector count) to reach shell code.
+    jmp SHELL_SEG:SHELL_OFF + MNEX_HDR_SIZE
 
-.shell_fail:
-    ; Shell load failed — print error using direct BIOS (syscalls are installed
-    ; but we have no user-mode code to talk to)
-    mov si, msg_shell_fail
-    call bios_puts
-.halt:
-    cli
-    hlt
+.fs_find_fail:
+    mov si, msg_fs_find
+    call boot_fail
+
+.fs_load_fail:
+    mov si, msg_fs_load
+    call boot_fail
+
+.fs_init_fail:
+    mov si, msg_fs_initf
+    call boot_fail
+
+.shell_find_fail:
+    mov si, msg_sh_find
+    call boot_fail
+
+.shell_load_fail:
+    mov si, msg_sh_load
+    call boot_fail
 
 ; =============================================================================
 ; install_syscalls — Install the INT 0x80 handler into the IVT
@@ -106,7 +158,23 @@ install_syscalls:
 ; saved/restored via a kernel-local memory word, and the handler address
 ; is stored there for the indirect jump.  This leaves all registers intact
 ; when the handler begins executing.
+;
+; CF propagation: Handlers that return CF as a status indicator MUST use
+; syscall_ret_cf instead of iret.  Plain iret restores the caller's
+; original FLAGS, silently discarding any CF changes made by the handler.
+; syscall_ret_cf uses retf 2 to preserve the handler's FLAGS.
 ; =============================================================================
+
+; Macro: return from INT 0x80 handler preserving current FLAGS (including CF).
+; Plain iret pops the caller's saved FLAGS, discarding the handler's CF.
+; retf 2 pops IP and CS, then skips the saved FLAGS (SP += 2), so the
+; current FLAGS register (with the handler's CF) remains in effect.
+; sti re-enables interrupts (the CPU clears IF on INT).
+%macro syscall_ret_cf 0
+    sti
+    retf 2
+%endmacro
+
 syscall_handler:
     mov [cs:.sc_temp], bx           ; Save BX in kernel data area
 
@@ -122,7 +190,7 @@ syscall_handler:
 .sc_unknown:
     mov bx, [cs:.sc_temp]           ; Restore BX
     stc
-    iret
+    syscall_ret_cf                  ; Must propagate CF to caller
 
 ; Temporary storage for syscall dispatch (single-threaded real mode,
 ; so no reentrancy concerns — interrupts are masked during INT handlers).
@@ -205,17 +273,20 @@ syscall_handler:
     iret
 
 ; ─── SYS_READ_SECTOR (AH=0x04) ───────────────────────────────────────────────
-; Input:  EAX = absolute LBA sector number
+; Input:  EDI = absolute LBA sector number
 ;         ES:BX = buffer to read into
 ;         CL = number of sectors to read
 ; Output: CF clear = success, CF set = error
+;
+; NOTE: LBA is passed in EDI (not EAX) because AH carries the syscall
+; function number, and AH is bits 8-15 of EAX — they would collide.
 ; ──────────────────────────────────────────────────────────────────────────────
 .fn_read_sector:
     push si
     push dx
 
     ; Set up the kernel's DAP
-    mov [dap_lba], eax
+    mov [dap_lba], edi
     xor ch, ch
     mov [dap_sectors], cx
     mov [dap_buffer], bx
@@ -228,14 +299,14 @@ syscall_handler:
 
     pop dx
     pop si
-    iret                            ; CF is set/cleared by BIOS
+    syscall_ret_cf                  ; Propagate CF from INT 0x13 to caller
 
 ; ─── SYS_GET_VERSION (AH=0x05) ───────────────────────────────────────────────
 ; Input:  none
 ; Output: AH = major version, AL = minor version
 ; ──────────────────────────────────────────────────────────────────────────────
 .fn_get_version:
-    mov ax, 0x0500                  ; Version 5.0 (v0.5.0)
+    mov ax, 0x0600                  ; Version 6.0 (v0.6.0)
     iret
 
 ; ─── SYS_CLEAR_SCREEN (AH=0x06) ──────────────────────────────────────────────
@@ -333,7 +404,7 @@ syscall_handler:
 .fn_get_ext_mem:
     mov ah, 0x88
     int 0x15                        ; AX = KB, CF on error
-    iret
+    syscall_ret_cf
 
 ; ─── SYS_GET_E820 (AH=0x0C) ──────────────────────────────────────────────────
 ; Input:  EBX = continuation value (0 to start), ES:DI = 20-byte buffer
@@ -352,7 +423,7 @@ syscall_handler:
     stc
 .e820_ok:
     pop edx
-    iret
+    syscall_ret_cf
 
 ; ─── SYS_REBOOT (AH=0x0D) ────────────────────────────────────────────────────
 ; Input:  none
@@ -370,7 +441,7 @@ syscall_handler:
     mov dl, [BIB_DRIVE]
     mov ah, 0x08
     int 0x13
-    iret
+    syscall_ret_cf
 
 ; ─── SYS_GET_BIB (AH=0x0F) ───────────────────────────────────────────────────
 ; Input:  none
@@ -413,14 +484,16 @@ syscall_handler:
     ret
 
 ; ─── SYS_PRINT_HEX16 (AH=0x11) ──────────────────────────────────────────────
-; Input:  AX = word to print as four hex digits
+; Input:  DX = word to print as four hex digits
 ; Output: none
+;
+; NOTE: Value passed in DX (not AX) because AH carries the syscall number.
 ; ──────────────────────────────────────────────────────────────────────────────
 .fn_print_hex16:
     push ax
     push bx
-    push ax
-    mov al, ah
+    push dx
+    mov al, dh
     ; High byte, high nibble
     push ax
     shr al, 4
@@ -429,26 +502,30 @@ syscall_handler:
     and al, 0x0F
     call .hex_nibble
     ; Low byte
-    pop ax
+    mov al, dl
     push ax
     shr al, 4
     call .hex_nibble
     pop ax
     and al, 0x0F
     call .hex_nibble
+    pop dx
     pop bx
     pop ax
     iret
 
 ; ─── SYS_PRINT_DEC16 (AH=0x12) ──────────────────────────────────────────────
-; Input:  AX = word to print as unsigned decimal
+; Input:  DX = word to print as unsigned decimal
 ; Output: none
+;
+; NOTE: Value passed in DX (not AX) because AH carries the syscall number.
 ; ──────────────────────────────────────────────────────────────────────────────
 .fn_print_dec16:
     push ax
     push bx
     push cx
     push dx
+    mov ax, dx                      ; Work in AX for division
     xor cx, cx
 
 .dec_div:
@@ -484,7 +561,7 @@ syscall_handler:
     push si
     push bx
     mov si, msg_anykey
-    call bios_puts
+    call puts
     xor ah, ah
     int 0x16                        ; Wait for keypress
     mov ax, 0x0003                  ; Clear screen
@@ -580,7 +657,7 @@ syscall_handler:
     mov bx, 0x55AA
     mov ah, 0x41
     int 0x13
-    iret
+    syscall_ret_cf
 
 ; ─── SYS_GET_IVT (AH=0x1B) ───────────────────────────────────────────────────
 ; Input:  CL = vector number (0x00–0xFF)
@@ -601,29 +678,44 @@ syscall_handler:
     iret
 
 ; =============================================================================
-; Shared binary loader (from src/include/load_binary.inc)
+; Shared subroutines (from src/include/)
 ; =============================================================================
+%include "find_file.inc"
 %include "load_binary.inc"
+%define BOOT_REGDUMP
+%include "boot_msg.inc"
 
 ; =============================================================================
-; bios_puts — Direct BIOS print (used before/outside syscall context)
+; puts — Direct BIOS print (used by boot messages and kernel)
 ; =============================================================================
-bios_puts:
+puts:
     lodsb
     test al, al
-    jz .bp_done
+    jz .done
     mov ah, 0x0E
     xor bh, bh
     int 0x10
-    jmp bios_puts
-.bp_done:
+    jmp puts
+.done:
     ret
 
 ; =============================================================================
 ; DATA
 ; =============================================================================
-msg_shell_fail  db 'KERNEL: Load error', 0
+msg_syscall     db 'Syscall handler (INT 0x80)', 0
+msg_fs          db 'FS.BIN loaded', 0
+msg_fs_init     db 'Filesystem (INT 0x81)', 0
+msg_fs_find     db 'FS.BIN not found', 0
+msg_fs_load     db 'FS.BIN load', 0
+msg_fs_initf    db 'FS.BIN init', 0
+msg_shell       db 'SHELL.BIN loaded', 0
+msg_sh_find     db 'SHELL.BIN not found', 0
+msg_sh_load     db 'SHELL.BIN load', 0
 msg_anykey      db 13, 10, '  Press any key...', 0
+
+; 11-byte "8.3" filenames for directory lookup
+fname_fs        db 'FS      BIN'
+fname_shell     db 'SHELL   BIN'
 
 ; --- Disk Address Packet (DAP) for INT 13h AH=42h ----------------------------
 ; Used by both load_mnex (during init) and SYS_READ_SECTOR (during runtime).
@@ -638,6 +730,6 @@ dap_lba:
     dd 0, 0
 
 ; =============================================================================
-; PADDING — fill to 4 sectors (2048 bytes)
+; PADDING — fill to 6 sectors (3072 bytes)
 ; =============================================================================
-times (4 * 512) - ($ - $$) db 0
+times (6 * 512) - ($ - $$) db 0

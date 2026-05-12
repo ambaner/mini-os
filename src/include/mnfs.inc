@@ -1,0 +1,60 @@
+; =============================================================================
+; mnfs.inc — MNFS (Mini-OS Flat Filesystem) constants
+;
+; Defines the on-disk layout of the MNFS directory table, directory entry
+; structure, file attributes, and INT 0x81 filesystem syscall numbers.
+;
+; MNFS is a flat (no subdirectories) filesystem with a 1-sector directory
+; table at a fixed partition offset.  Files are stored as contiguous sectors.
+; See doc/FILESYSTEM.md for the complete specification.
+;
+; Used by:
+;   - VBR, LOADER, KERNEL (via find_file.inc for boot-time directory lookup)
+;   - FS.BIN (filesystem module, implements INT 0x81 handler)
+;   - SHELL (dir command, uses INT 0x81 via FS_* constants)
+; =============================================================================
+
+; --- Disk layout -------------------------------------------------------------
+MNFS_DIR_SECTOR   equ 2              ; Directory table at partition sector 2
+MNFS_DIR_SECTORS  equ 1              ; Directory is 1 sector (512 bytes)
+
+; --- Directory header (first 32 bytes of directory sector) -------------------
+MNFS_MAGIC        equ 0x53464E4D     ; 'MNFS' as little-endian dword
+MNFS_HDR_SIZE     equ 32             ; Header size in bytes
+MNFS_HDR_MAGIC    equ 0              ; Offset: 4-byte magic ('MNFS')
+MNFS_HDR_VERSION  equ 4              ; Offset: 1-byte version (0x01)
+MNFS_HDR_COUNT    equ 5              ; Offset: 1-byte file count
+MNFS_HDR_TOTAL    equ 6              ; Offset: 2-byte total sectors used
+MNFS_HDR_CAPACITY equ 8              ; Offset: 2-byte total data area sectors
+
+; --- Directory entry (32 bytes each, starting at offset 32) ------------------
+MNFS_ENTRY_SIZE   equ 32             ; Bytes per directory entry
+MNFS_MAX_ENTRIES  equ 15             ; (512 - 32) / 32 = 15 entries max
+MNFS_NAME_LEN     equ 11             ; 8 filename + 3 extension (8.3 format)
+
+; Entry field offsets (relative to start of entry)
+MNFS_ENT_NAME     equ 0              ; 11 bytes: filename (8) + extension (3)
+MNFS_ENT_ATTR     equ 11             ; 1 byte:  attribute flags
+MNFS_ENT_START    equ 12             ; 4 bytes: start sector (partition-relative)
+MNFS_ENT_SECTORS  equ 16             ; 2 bytes: file size in sectors
+MNFS_ENT_BYTES    equ 18             ; 4 bytes: actual file size in bytes
+
+; --- Attribute flags ---------------------------------------------------------
+MNFS_ATTR_SYSTEM  equ 0x01           ; System file (LOADER, KERNEL, FS)
+MNFS_ATTR_EXEC    equ 0x02           ; User-mode executable (MNEX format)
+
+; --- MNEX binary header (first 6 bytes of every loadable binary) -------------
+; Offset 0: 4-byte magic signature ('MNLD', 'MNKN', 'MNFS', 'MNEX')
+; Offset 4: 2-byte sector count
+; Code entry point is always at offset 6, right after the header.
+MNEX_HDR_SIZE     equ 6              ; Header size — callers must jump past it
+
+; --- INT 0x81 filesystem syscall numbers -------------------------------------
+; These are function numbers passed in AH before INT 0x81.
+; FS.BIN dispatches based on AH.  See doc/FILESYSTEM.md §8.
+FS_LIST_FILES     equ 0x01           ; ES:BX=buf → CL=count, buf=directory
+FS_FIND_FILE      equ 0x02           ; DS:SI=name → EAX=start, CX=sectors
+FS_READ_FILE      equ 0x03           ; DS:SI=name, ES:BX=buf, CX=max → CX=read
+FS_GET_INFO       equ 0x04           ; → AL=ver, CL=count, CH=max, DX=total
+
+FS_SYSCALL_MAX    equ 0x04           ; Highest valid FS syscall number

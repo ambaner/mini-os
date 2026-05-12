@@ -1,16 +1,20 @@
 <#
 .SYNOPSIS
-    Create a partitioned raw disk image from MBR, VBR, loader, kernel, and shell binaries.
+    Create a partitioned raw disk image with MNFS filesystem.
 
 .DESCRIPTION
     Builds a raw disk image with:
       1. MBR at sector 0 (with partition table stamped in)
       2. One partition starting at a configurable LBA offset
       3. VBR written at the partition's first sector
-      4. LOADER.BIN written at partition offset 4 sectors
-      5. KERNEL.BIN written at partition offset 20 sectors
-      6. SHELL.BIN written at partition offset 36 sectors
-      7. Partition start LBA stamped into VBR header at offset 9
+      4. MNFS directory table at partition sector 2
+      5. Files packed contiguously starting at partition sector 3:
+         LOADER.BIN, FS.BIN, KERNEL.BIN, SHELL.BIN
+      6. Partition start LBA stamped into VBR header at offset 9
+
+    The MNFS directory table is generated automatically from the binaries.
+    No hardcoded file offsets — all positions are determined at build time
+    and recorded in the directory entries.
 
 .PARAMETER MbrPath
     Path to the assembled MBR binary (512 bytes).
@@ -20,6 +24,9 @@
 
 .PARAMETER LoaderPath
     Path to the assembled LOADER.BIN binary (multiple of 512 bytes).
+
+.PARAMETER FsPath
+    Path to the assembled FS.BIN binary (multiple of 512 bytes).
 
 .PARAMETER KernelPath
     Path to the assembled KERNEL.BIN binary (multiple of 512 bytes).
@@ -45,6 +52,7 @@ param(
     [Parameter(Mandatory)][string]$MbrPath,
     [Parameter(Mandatory)][string]$VbrPath,
     [Parameter(Mandatory)][string]$LoaderPath,
+    [Parameter(Mandatory)][string]$FsPath,
     [Parameter(Mandatory)][string]$KernelPath,
     [Parameter(Mandatory)][string]$ShellPath,
     [Parameter(Mandatory)][string]$OutputPath,
@@ -55,140 +63,159 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# --- Partition-relative offsets (in sectors) ---
-$LoaderPartOff = 4                   # LOADER.BIN at partition offset 4
-$KernelPartOff = 20                  # KERNEL.BIN at partition offset 20
-$ShellPartOff  = 36                  # SHELL.BIN at partition offset 36
+# --- MNFS constants (must match mnfs.inc) ------------------------------------
+$MNFS_DIR_SECTOR    = 2             # Directory table at partition sector 2
+$MNFS_DIR_SECTORS   = 1             # 1 sector (512 bytes)
+$MNFS_HDR_SIZE      = 32            # Header size in directory sector
+$MNFS_ENTRY_SIZE    = 32            # Each directory entry is 32 bytes
+$MNFS_MAX_ENTRIES   = 15            # (512 - 32) / 32
+$MNFS_ATTR_SYSTEM   = 0x01
+$MNFS_ATTR_EXEC     = 0x02
 
 function Write-Step([string]$msg) { Write-Host "[create-disk] $msg" -ForegroundColor Cyan }
 
 # ---------- validate inputs -------------------------------------------------
-$mbrBytes = [System.IO.File]::ReadAllBytes((Resolve-Path $MbrPath))
-if ($mbrBytes.Length -ne 512) {
-    throw "MBR must be exactly 512 bytes (got $($mbrBytes.Length))."
-}
-if ($mbrBytes[510] -ne 0x55 -or $mbrBytes[511] -ne 0xAA) {
-    throw "MBR is missing boot signature (0x55AA)."
+function Read-Binary([string]$Path, [string]$Name, [string]$ExpectedMagic, [int]$MagicOffset = 0) {
+    $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $Path))
+    if (($bytes.Length % 512) -ne 0) {
+        throw "$Name must be a multiple of 512 bytes (got $($bytes.Length))."
+    }
+    if ($ExpectedMagic) {
+        $magic = [System.Text.Encoding]::ASCII.GetString($bytes, $MagicOffset, 4)
+        if ($magic -ne $ExpectedMagic) {
+            throw "$Name magic is '$magic' at offset $MagicOffset (expected '$ExpectedMagic')."
+        }
+    }
+    $sectors = $bytes.Length / 512
+    Write-Step "$Name`: $($bytes.Length) bytes ($sectors sectors)"
+    return $bytes
 }
 
-$vbrBytes = [System.IO.File]::ReadAllBytes((Resolve-Path $VbrPath))
-if (($vbrBytes.Length % 512) -ne 0) {
-    throw "VBR must be a multiple of 512 bytes (got $($vbrBytes.Length))."
-}
-if ($vbrBytes.Length -lt 512) {
-    throw "VBR must be at least 512 bytes (got $($vbrBytes.Length))."
-}
-if ($vbrBytes[510] -ne 0x55 -or $vbrBytes[511] -ne 0xAA) {
-    throw "VBR is missing boot signature (0x55AA) at offset 510."
-}
+$mbrBytes    = Read-Binary $MbrPath    'MBR'     $null
+if ($mbrBytes.Length -ne 512) { throw "MBR must be exactly 512 bytes." }
+if ($mbrBytes[510] -ne 0x55 -or $mbrBytes[511] -ne 0xAA) { throw "MBR missing boot signature." }
+
+$vbrBytes    = Read-Binary $VbrPath    'VBR'     'MNOS' 3
+if ($vbrBytes[510] -ne 0x55 -or $vbrBytes[511] -ne 0xAA) { throw "VBR missing boot signature." }
+
+$loaderBytes = Read-Binary $LoaderPath 'LOADER'  'MNLD'
+$fsBytes     = Read-Binary $FsPath     'FS'      'MNFS'
+$kernelBytes = Read-Binary $KernelPath 'KERNEL'  'MNKN'
+$shellBytes  = Read-Binary $ShellPath  'SHELL'   'MNEX'
+
+# ---------- build file list and pack contiguously ---------------------------
+# Files are packed starting at partition sector 3 (after VBR + directory)
 $vbrSectors = $vbrBytes.Length / 512
-Write-Step "VBR: $($vbrBytes.Length) bytes ($vbrSectors sectors)"
 
-$loaderBytes = [System.IO.File]::ReadAllBytes((Resolve-Path $LoaderPath))
-if (($loaderBytes.Length % 512) -ne 0) {
-    throw "LOADER.BIN must be a multiple of 512 bytes (got $($loaderBytes.Length))."
-}
-$magic = [System.Text.Encoding]::ASCII.GetString($loaderBytes, 0, 4)
-if ($magic -ne 'MNLD') {
-    throw "LOADER.BIN magic is '$magic' (expected 'MNLD')."
-}
-$loaderSectors = $loaderBytes.Length / 512
-Write-Step "LOADER: $($loaderBytes.Length) bytes ($loaderSectors sectors)"
+$files = @(
+    @{ Name = 'LOADER  BIN'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $loaderBytes }
+    @{ Name = 'FS      BIN'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $fsBytes }
+    @{ Name = 'KERNEL  BIN'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $kernelBytes }
+    @{ Name = 'SHELL   BIN'; Attr = $MNFS_ATTR_EXEC;   Bytes = $shellBytes }
+)
 
-$shellBytes = [System.IO.File]::ReadAllBytes((Resolve-Path $ShellPath))
-if (($shellBytes.Length % 512) -ne 0) {
-    throw "SHELL.BIN must be a multiple of 512 bytes (got $($shellBytes.Length))."
-}
-$shellMagic = [System.Text.Encoding]::ASCII.GetString($shellBytes, 0, 4)
-if ($shellMagic -ne 'MNEX') {
-    throw "SHELL.BIN magic is '$shellMagic' (expected 'MNEX')."
-}
-$shellSectors = $shellBytes.Length / 512
-Write-Step "SHELL: $($shellBytes.Length) bytes ($shellSectors sectors)"
-
-# Validate KERNEL.BIN
-$kernelBytes = [System.IO.File]::ReadAllBytes((Resolve-Path $KernelPath))
-if (($kernelBytes.Length % 512) -ne 0) {
-    throw "KERNEL.BIN must be a multiple of 512 bytes (got $($kernelBytes.Length))."
-}
-$kernelMagic = [System.Text.Encoding]::ASCII.GetString($kernelBytes, 0, 4)
-if ($kernelMagic -ne 'MNKN') {
-    throw "KERNEL.BIN magic is '$kernelMagic' (expected 'MNKN')."
-}
-$kernelSectors = $kernelBytes.Length / 512
-Write-Step "KERNEL: $($kernelBytes.Length) bytes ($kernelSectors sectors)"
-
-# Verify no overlaps
-if (($LoaderPartOff + $loaderSectors) -gt $KernelPartOff) {
-    throw "LOADER.BIN ($loaderSectors sectors at offset $LoaderPartOff) overlaps KERNEL.BIN (at offset $KernelPartOff)."
-}
-if (($KernelPartOff + $kernelSectors) -gt $ShellPartOff) {
-    throw "KERNEL.BIN ($kernelSectors sectors at offset $KernelPartOff) overlaps SHELL.BIN (at offset $ShellPartOff)."
+if ($files.Count -gt $MNFS_MAX_ENTRIES) {
+    throw "Too many files ($($files.Count)) — MNFS supports max $MNFS_MAX_ENTRIES."
 }
 
+# Calculate start sectors (contiguous packing after directory)
+$nextSector = $MNFS_DIR_SECTOR + $MNFS_DIR_SECTORS   # First file starts at sector 3
+$totalDataSectors = 0
+
+foreach ($f in $files) {
+    $f.StartSector = $nextSector
+    $f.SizeSectors = $f.Bytes.Length / 512
+    $f.SizeBytes   = $f.Bytes.Length
+    $nextSector   += $f.SizeSectors
+    $totalDataSectors += $f.SizeSectors
+    Write-Step "  $($f.Name): sector $($f.StartSector), $($f.SizeSectors) sectors"
+}
+
+# ---------- generate MNFS directory sector ----------------------------------
+$dirSector = [byte[]]::new(512)
+
+# Header (32 bytes)
+$magic = [System.Text.Encoding]::ASCII.GetBytes('MNFS')
+[Array]::Copy($magic, 0, $dirSector, 0, 4)                    # magic
+$dirSector[4] = 0x01                                            # version
+$dirSector[5] = [byte]$files.Count                             # file_count
+$totalSectors = $MNFS_DIR_SECTORS + $totalDataSectors
+$totalBytes = [BitConverter]::GetBytes([uint16]$totalSectors)
+[Array]::Copy($totalBytes, 0, $dirSector, 6, 2)               # total_sectors
+
+# Directory entries (32 bytes each, starting at offset 32)
+$entryOffset = $MNFS_HDR_SIZE
+foreach ($f in $files) {
+    # Name (11 bytes, already in 8.3 format)
+    $nameBytes = [System.Text.Encoding]::ASCII.GetBytes($f.Name)
+    [Array]::Copy($nameBytes, 0, $dirSector, $entryOffset + 0, 11)
+
+    # Attributes (1 byte)
+    $dirSector[$entryOffset + 11] = [byte]$f.Attr
+
+    # Start sector (4 bytes, uint32 LE)
+    $startBytes = [BitConverter]::GetBytes([uint32]$f.StartSector)
+    [Array]::Copy($startBytes, 0, $dirSector, $entryOffset + 12, 4)
+
+    # Size in sectors (2 bytes, uint16 LE)
+    $secBytes = [BitConverter]::GetBytes([uint16]$f.SizeSectors)
+    [Array]::Copy($secBytes, 0, $dirSector, $entryOffset + 16, 2)
+
+    # Size in bytes (4 bytes, uint32 LE)
+    $szBytes = [BitConverter]::GetBytes([uint32]$f.SizeBytes)
+    [Array]::Copy($szBytes, 0, $dirSector, $entryOffset + 18, 4)
+
+    # Remaining 10 bytes are already zero (reserved)
+    $entryOffset += $MNFS_ENTRY_SIZE
+}
+
+Write-Step "MNFS directory: $($files.Count) files, $totalSectors total sectors"
+
+# ---------- disk geometry ---------------------------------------------------
 $diskSize = [long]$SizeMB * 1024 * 1024
-$totalSectors = [int]($diskSize / 512)
+$totalDiskSectors = [int]($diskSize / 512)
 
-if ($PartitionStartLBA -ge $totalSectors) {
-    throw "Partition start LBA ($PartitionStartLBA) exceeds disk size ($totalSectors sectors)."
+if ($PartitionStartLBA -ge $totalDiskSectors) {
+    throw "Partition start LBA ($PartitionStartLBA) exceeds disk size ($totalDiskSectors sectors)."
 }
 
-# Partition spans from PartitionStartLBA to end of disk
-$partSizeSectors = $totalSectors - $PartitionStartLBA
+$partSizeSectors = $totalDiskSectors - $PartitionStartLBA
+Write-Step "Disk: $SizeMB MB ($totalDiskSectors sectors)"
+Write-Step "Partition 1: LBA $PartitionStartLBA, size $partSizeSectors sectors"
 
-Write-Step "Disk: $SizeMB MB ($totalSectors sectors)"
-Write-Step "Partition 1: LBA $PartitionStartLBA, size $partSizeSectors sectors ($([math]::Round($partSizeSectors * 512 / 1MB, 2)) MB)"
-Write-Step "Partition type: 0x$($PartitionType.ToString('X2'))"
+# Stamp data area capacity into MNFS directory header
+# Capacity = partition size - VBR sectors (everything MNFS manages)
+$capacitySectors = $partSizeSectors - $vbrSectors
+$capacityBytes = [BitConverter]::GetBytes([uint16]$capacitySectors)
+[Array]::Copy($capacityBytes, 0, $dirSector, 8, 2)            # capacity
 
 # ---------- stamp partition table into MBR ----------------------------------
-# Partition entry format (16 bytes):
-#   [0]    Status (0x80 = active)
-#   [1-3]  CHS of first sector (we use 0xFE,0xFF,0xFF for LBA mode)
-#   [4]    Partition type
-#   [5-7]  CHS of last sector  (we use 0xFE,0xFF,0xFF for LBA mode)
-#   [8-11] LBA of first sector (little-endian 32-bit)
-#   [12-15] Size in sectors     (little-endian 32-bit)
-
 $partEntry = [byte[]]::new(16)
-$partEntry[0]  = 0x80               # Active/bootable
-$partEntry[1]  = 0xFE               # CHS start — use LBA
-$partEntry[2]  = 0xFF
-$partEntry[3]  = 0xFF
+$partEntry[0]  = 0x80
+$partEntry[1]  = 0xFE; $partEntry[2] = 0xFF; $partEntry[3] = 0xFF
 $partEntry[4]  = [byte]$PartitionType
-$partEntry[5]  = 0xFE               # CHS end — use LBA
-$partEntry[6]  = 0xFF
-$partEntry[7]  = 0xFF
-
-# LBA start (little-endian)
+$partEntry[5]  = 0xFE; $partEntry[6] = 0xFF; $partEntry[7] = 0xFF
 $lbaBytes = [BitConverter]::GetBytes([uint32]$PartitionStartLBA)
 [Array]::Copy($lbaBytes, 0, $partEntry, 8, 4)
-
-# Size in sectors (little-endian)
 $sizeBytes = [BitConverter]::GetBytes([uint32]$partSizeSectors)
 [Array]::Copy($sizeBytes, 0, $partEntry, 12, 4)
-
-# Write partition entry 1 at MBR offset 0x1BE
 [Array]::Copy($partEntry, 0, $mbrBytes, 0x1BE, 16)
-
-# Entries 2-4 remain zeroed (already are from NASM)
-
 Write-Step "Partition table stamped into MBR."
 
 # ---------- stamp partition start LBA into VBR header -----------------------
-# VBR header offset 9: dd partition_start_lba (4 bytes, little-endian)
 $partLbaBytes = [BitConverter]::GetBytes([uint32]$PartitionStartLBA)
 [Array]::Copy($partLbaBytes, 0, $vbrBytes, 9, 4)
-Write-Step "Partition LBA ($PartitionStartLBA) stamped into VBR header at offset 9."
+Write-Step "Partition LBA ($PartitionStartLBA) stamped into VBR header."
 
 # ---------- build the raw disk image ----------------------------------------
 Write-Step "Writing disk image..."
 
 $fs = [System.IO.FileStream]::new($OutputPath, 'Create', 'Write')
 
-# Write MBR at sector 0
+# Sector 0: MBR
 $fs.Write($mbrBytes, 0, 512)
 
-# Zero-fill from sector 1 to partition start
+# Gap: sectors 1 to partition start
 $gapBytes = ($PartitionStartLBA - 1) * 512
 if ($gapBytes -gt 0) {
     $zeroBuf = [byte[]]::new([math]::Min($gapBytes, 65536))
@@ -200,45 +227,36 @@ if ($gapBytes -gt 0) {
     }
 }
 
-# Write VBR (all sectors) at partition start
+# Partition sector 0+: VBR (all sectors)
 $fs.Write($vbrBytes, 0, $vbrBytes.Length)
 
-# Zero-fill gap between VBR and LOADER.BIN
+# Gap between VBR end and directory sector
 $vbrEndSector = $vbrSectors
-$gapToLoader = ($LoaderPartOff - $vbrEndSector) * 512
-if ($gapToLoader -gt 0) {
-    $zeroBuf = [byte[]]::new($gapToLoader)
-    $fs.Write($zeroBuf, 0, $gapToLoader)
+$gapToDir = ($MNFS_DIR_SECTOR - $vbrEndSector) * 512
+if ($gapToDir -gt 0) {
+    $zeroBuf = [byte[]]::new($gapToDir)
+    $fs.Write($zeroBuf, 0, $gapToDir)
 }
 
-# Write LOADER.BIN at partition offset LoaderPartOff
-$fs.Write($loaderBytes, 0, $loaderBytes.Length)
+# MNFS directory sector
+$fs.Write($dirSector, 0, 512)
 
-# Zero-fill gap between LOADER.BIN and KERNEL.BIN
-$loaderEndSector = $LoaderPartOff + $loaderSectors
-$gapToKernel = ($KernelPartOff - $loaderEndSector) * 512
-if ($gapToKernel -gt 0) {
-    $zeroBuf = [byte[]]::new($gapToKernel)
-    $fs.Write($zeroBuf, 0, $gapToKernel)
+# Write each file contiguously
+$expectedSector = $MNFS_DIR_SECTOR + $MNFS_DIR_SECTORS
+foreach ($f in $files) {
+    # Fill any gap (shouldn't be any with contiguous packing, but be safe)
+    $gap = ($f.StartSector - $expectedSector) * 512
+    if ($gap -gt 0) {
+        $zeroBuf = [byte[]]::new($gap)
+        $fs.Write($zeroBuf, 0, $gap)
+    }
+    $fs.Write($f.Bytes, 0, $f.Bytes.Length)
+    $expectedSector = $f.StartSector + $f.SizeSectors
 }
-
-# Write KERNEL.BIN at partition offset KernelPartOff
-$fs.Write($kernelBytes, 0, $kernelBytes.Length)
-
-# Zero-fill gap between KERNEL.BIN and SHELL.BIN
-$kernelEndSector = $KernelPartOff + $kernelSectors
-$gapToShell = ($ShellPartOff - $kernelEndSector) * 512
-if ($gapToShell -gt 0) {
-    $zeroBuf = [byte[]]::new($gapToShell)
-    $fs.Write($zeroBuf, 0, $gapToShell)
-}
-
-# Write SHELL.BIN at partition offset ShellPartOff
-$fs.Write($shellBytes, 0, $shellBytes.Length)
 
 # Zero-fill the rest of the disk
-$shellEndAbsLBA = $PartitionStartLBA + $ShellPartOff + $shellSectors
-$remainingBytes = $diskSize - ($shellEndAbsLBA * 512)
+$lastAbsLBA = $PartitionStartLBA + $expectedSector
+$remainingBytes = $diskSize - ($lastAbsLBA * 512)
 if ($remainingBytes -gt 0) {
     $zeroBuf = [byte[]]::new([math]::Min($remainingBytes, 65536))
     $remaining = $remainingBytes
@@ -255,6 +273,8 @@ $fileSize = (Get-Item $OutputPath).Length
 Write-Step "Raw image: $OutputPath ($fileSize bytes)"
 Write-Step "  Sector 0       : MBR (with partition table)"
 Write-Step "  Sector $PartitionStartLBA  : VBR ($vbrSectors sectors, $($vbrBytes.Length) bytes)"
-Write-Step "  Sector $($PartitionStartLBA + $LoaderPartOff)  : LOADER.BIN ($loaderSectors sectors, $($loaderBytes.Length) bytes)"
-Write-Step "  Sector $($PartitionStartLBA + $KernelPartOff)  : KERNEL.BIN ($kernelSectors sectors, $($kernelBytes.Length) bytes)"
-Write-Step "  Sector $($PartitionStartLBA + $ShellPartOff)  : SHELL.BIN ($shellSectors sectors, $($shellBytes.Length) bytes)"
+Write-Step "  Sector $($PartitionStartLBA + $MNFS_DIR_SECTOR)  : MNFS directory ($($files.Count) files)"
+foreach ($f in $files) {
+    $name = $f.Name.Trim()
+    Write-Step "  Sector $($PartitionStartLBA + $f.StartSector)  : $name ($($f.SizeSectors) sectors, $($f.SizeBytes) bytes)"
+}

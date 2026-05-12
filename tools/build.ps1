@@ -1,16 +1,17 @@
 <#
 .SYNOPSIS
-    Build script for mini-os.  Assembles MBR + VBR + LOADER + KERNEL + SHELL, creates a partitioned VHD.
+    Build script for mini-os.  Assembles MBR + VBR + LOADER + FS + KERNEL + SHELL, creates a partitioned VHD.
 
 .DESCRIPTION
     1. Downloads NASM if not found on PATH or in tools/nasm/.
-    2. Assembles src/boot/mbr.asm   -> build/boot/mbr.bin
-    3. Assembles src/boot/vbr.asm   -> build/boot/vbr.bin
-    4. Assembles src/loader/loader.asm -> build/boot/loader.bin
-    5. Assembles src/kernel/kernel.asm -> build/boot/kernel.bin
-    6. Assembles src/shell/shell.asm   -> build/boot/shell.bin
-    7. Creates a partitioned raw disk image via tools/create-disk.ps1
-    8. Wraps the raw image as a VHD via tools/create-vhd.ps1
+    2. Assembles src/boot/mbr.asm      -> build/boot/mbr.bin
+    3. Assembles src/boot/vbr.asm      -> build/boot/vbr.bin
+    4. Assembles src/loader/loader.asm  -> build/boot/loader.bin
+    5. Assembles src/fs/fs.asm          -> build/boot/fs.bin
+    6. Assembles src/kernel/kernel.asm  -> build/boot/kernel.bin
+    7. Assembles src/shell/shell.asm    -> build/boot/shell.bin
+    8. Creates a partitioned raw disk image via tools/create-disk.ps1
+    9. Wraps the raw image as a VHD via tools/create-vhd.ps1
 
 .PARAMETER Clean
     Remove the build/ directory before building.
@@ -38,11 +39,13 @@ $MbrAsm     = Join-Path $SrcBoot 'mbr.asm'
 $VbrAsm     = Join-Path $SrcBoot 'vbr.asm'
 $LoaderAsm  = Join-Path $Root 'src\loader\loader.asm'
 $KernelAsm  = Join-Path $Root 'src\kernel\kernel.asm'
+$FsAsm      = Join-Path $Root 'src\fs\fs.asm'
 $ShellAsm   = Join-Path $Root 'src\shell\shell.asm'
 $MbrBin     = Join-Path $BuildDir 'mbr.bin'
 $VbrBin     = Join-Path $BuildDir 'vbr.bin'
 $LoaderBin  = Join-Path $BuildDir 'loader.bin'
 $KernelBin  = Join-Path $BuildDir 'kernel.bin'
+$FsBin      = Join-Path $BuildDir 'fs.bin'
 $ShellBin   = Join-Path $BuildDir 'shell.bin'
 $IncludeDir = Join-Path $Root 'src\include'
 $RawImg     = Join-Path $BuildDir 'mini-os.img'
@@ -124,13 +127,14 @@ Write-Step "Using NASM: $nasm"
 Build-Binary -Name 'MBR'    -AsmPath $MbrAsm    -BinPath $MbrBin    -ExpectedSize 512
 Build-Binary -Name 'VBR'    -AsmPath $VbrAsm    -BinPath $VbrBin
 Build-Binary -Name 'LOADER' -AsmPath $LoaderAsm -BinPath $LoaderBin
+Build-Binary -Name 'FS'     -AsmPath $FsAsm     -BinPath $FsBin
 Build-Binary -Name 'KERNEL' -AsmPath $KernelAsm -BinPath $KernelBin
 Build-Binary -Name 'SHELL'  -AsmPath $ShellAsm  -BinPath $ShellBin
 
 # ---------- create partitioned disk image -----------------------------------
 Write-Step 'Creating partitioned disk image...'
 $DiskScript = Join-Path $ToolsDir 'create-disk.ps1'
-& $DiskScript -MbrPath $MbrBin -VbrPath $VbrBin -LoaderPath $LoaderBin -KernelPath $KernelBin -ShellPath $ShellBin -OutputPath $RawImg -SizeMB $DiskSizeMB
+& $DiskScript -MbrPath $MbrBin -VbrPath $VbrBin -LoaderPath $LoaderBin -FsPath $FsBin -KernelPath $KernelBin -ShellPath $ShellBin -OutputPath $RawImg -SizeMB $DiskSizeMB
 
 # ---------- create VHD ------------------------------------------------------
 Write-Step 'Creating VHD...'

@@ -1,10 +1,12 @@
 # mini-os
 
-A minimalistic operating system, built from scratch — currently at **v0.5.0**.
+A minimalistic operating system, built from scratch — currently at **v0.6.0**.
 MBR reads the partition table, chain-loads a VBR which loads a stage-2 loader
 (A20 gate enablement), which loads a 16-bit kernel (KERNEL.BIN) that provides
-an INT 0x80 syscall interface, which loads the interactive shell (`mnos:\>`) with
-commands for system info, CPU details, memory diagnostics, version info, and more.
+an INT 0x80 syscall interface, which loads the filesystem module (FS.BIN) with
+an INT 0x81 filesystem API, and finally the interactive shell (`mnos:\>`) with
+commands for system info, CPU details, memory diagnostics, directory listing,
+version info, and more.
 
 ![mini-os booting in Hyper-V](doc/booted.gif)
 
@@ -25,7 +27,7 @@ build.bat
 
 The build script will:
 1. Download NASM into `tools/nasm/` if not already installed
-2. Assemble MBR, VBR, LOADER, KERNEL, and SHELL binaries
+2. Assemble MBR, VBR, LOADER, FS, KERNEL, and SHELL binaries
 3. Create `build/boot/mini-os.vhd` (16 MB fixed VHD with partition table)
 
 ## Running in Hyper-V
@@ -44,7 +46,7 @@ The script will prompt for a VM name and location (defaults are fine), then crea
 You should see the MBR banner and partition table info, then the shell:
 
 ```
-  MNOS v0.5.0
+  MNOS v0.6.0
 
 mnos:\>
 ```
@@ -55,6 +57,7 @@ Type `help` for a list of commands:
 |---------|-------------|
 | `sysinfo` | 5 pages of hardware info (CPU/CPUID, memory/E820, BDA, video/disk/EDD, IVT) |
 | `mem` | Memory diagnostics — conventional/extended RAM, A20 gate, layout, E820 map |
+| `dir` | List files on disk (name, type, sectors, bytes) |
 | `ver` | Version, architecture, platform, and build info |
 | `help` | List available commands |
 | `cls` | Clear screen |
@@ -85,18 +88,21 @@ mini-os/
 │   ├── include/               # Shared constants & subroutines (%include)
 │   │   ├── bib.inc            # Boot Info Block field addresses
 │   │   ├── memory.inc         # Component load addresses
-│   │   ├── disk.inc           # Partition disk layout offsets
+│   │   ├── mnfs.inc           # MNFS filesystem constants & INT 0x81 numbers
+│   │   ├── find_file.inc      # Bootstrap MNFS directory lookup subroutine
 │   │   ├── syscalls.inc       # INT 0x80 syscall function numbers
 │   │   └── load_binary.inc    # Shared MNEX binary loader subroutine
 │   ├── boot/
 │   │   ├── mbr.asm           # MBR — partition table scan + VBR chain-load
-│   │   └── vbr.asm           # VBR — loads LOADER.BIN (2 sectors)
+│   │   └── vbr.asm           # VBR — finds LOADER.BIN via MNFS directory
 │   ├── loader/
-│   │   └── loader.asm        # Stage-2 loader — A20 gate, loads KERNEL.BIN
+│   │   └── loader.asm        # Stage-2 loader — A20 gate, finds KERNEL.BIN via MNFS
 │   ├── kernel/
-│   │   └── kernel.asm        # 16-bit kernel — INT 0x80 syscall interface
+│   │   └── kernel.asm        # 16-bit kernel — INT 0x80 syscalls, loads FS.BIN + SHELL
+│   ├── fs/
+│   │   └── fs.asm            # Filesystem module — INT 0x81 API, MNFS directory cache
 │   └── shell/
-│       └── shell.asm         # Interactive shell (user-mode MNEX executable)
+│       └── shell.asm         # Interactive shell (user-mode, dir/sysinfo/mem/ver/help/cls/reboot)
 ├── tools/
 │   ├── build.ps1             # Build logic (called by build.bat)
 │   ├── create-disk.ps1       # Partitioned raw disk image creator
@@ -109,6 +115,7 @@ mini-os/
 │       ├── mbr.bin
 │       ├── vbr.bin
 │       ├── loader.bin
+│       ├── fs.bin
 │       ├── kernel.bin
 │       ├── shell.bin
 │       ├── mini-os.img
@@ -128,6 +135,10 @@ See **[doc/DESIGN.md](doc/DESIGN.md)** for the full architecture document — bo
 memory layout, VHD format, shell internals, disk layout, and project roadmap.
 
 Additional deep-dive documents:
+
+- **[doc/FILESYSTEM.md](doc/FILESYSTEM.md)** — MNFS flat filesystem specification:
+  directory format, 8.3 filenames, FS.BIN module architecture, INT 0x81 API,
+  bootstrap vs runtime filesystem access, and build pipeline integration.
 
 - **[doc/BOOT-LAYOUT-RATIONALE.md](doc/BOOT-LAYOUT-RATIONALE.md)** — Why the three-stage boot
   chain? Comparisons with DOS 6.22, Windows NT/XP, and Linux/GRUB. Analysis of
@@ -167,6 +178,7 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.3.0` | **A20 gate enablement** | VBR enables A20 at boot (BIOS/8042/Fast A20 fallbacks), full memory access above 1 MB |
 | `v0.4.0` | **Three-stage boot chain** | VBR → LOADER.BIN → SHELL.BIN split; A20 in loader, shell as separate binary, BIB at 0x0600 |
 | `v0.5.0` | **16-bit Kernel + Syscalls** | KERNEL.BIN with INT 0x80 syscall interface; shell refactored to user-mode MNEX executable |
+| `v0.6.0` | **MNFS Filesystem** | Flat filesystem, FS.BIN module with INT 0x81 API, `dir` command, no hardcoded disk offsets |
 
 ```cmd
 git checkout v0.1.0      # see the project at any prior milestone

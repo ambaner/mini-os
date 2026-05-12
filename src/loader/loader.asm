@@ -3,7 +3,7 @@
 ;
 ; Loaded by the VBR into memory at 0x0800.  Responsibilities:
 ;   1. Enable the A20 gate (3 fallback methods)
-;   2. Load KERNEL.BIN from a fixed partition offset into memory at 0x5000
+;   2. Find KERNEL.BIN in the MNFS directory and load it at 0x5000
 ;   3. Transfer control to the kernel
 ;
 ; The Boot Info Block (BIB) at 0x0600 is populated by the VBR:
@@ -20,7 +20,7 @@
 
 %include "bib.inc"
 %include "memory.inc"
-%include "disk.inc"
+%include "mnfs.inc"
 
 [BITS 16]
 [ORG 0x0800]                        ; VBR loads us here
@@ -101,10 +101,14 @@ enable_a20:
 
     ; --- All methods failed --------------------------------------------------
     mov byte [BIB_A20], 0           ; Record failure
+    mov si, msg_a20_warn            ; Print warning (non-fatal, boot continues)
+    call puts
     jmp load_kernel
 
 .a20_ok:
     mov byte [BIB_A20], 1           ; Record success
+    mov si, msg_a20
+    call boot_ok
     jmp load_kernel
 
 ; --- A20 helper: wait for 8042 input buffer to be empty ----------------------
@@ -174,35 +178,41 @@ check_a20:
 ; =============================================================================
 ; LOAD KERNEL.BIN
 ;
-; Load KERNEL.BIN from a fixed partition offset to 0x5000 using the shared
-; load_mnex subroutine, then jump to it.
+; Find KERNEL.BIN in the MNFS directory table and load it at 0x5000,
+; then jump to it.
 ; =============================================================================
 load_kernel:
-    ; Load KERNEL.BIN using shared load_mnex subroutine
-    mov eax, KERNEL_PART_OFF        ; Partition-relative sector offset
+    ; Use 0x3000 (shell area) as scratch buffer for directory read
+    mov bx, SHELL_OFF               ; Scratch buffer (shell not loaded yet)
+    mov si, fname_kernel            ; 11-byte "8.3" filename
+    call find_file
+    jc .kernel_fail
+
+    ; EAX = partition-relative start sector, CX = size in sectors
     mov bx, KERNEL_OFF              ; Load address (segment 0x0000)
     mov ecx, 'MNKN'                 ; Expected magic signature
-    mov dh, KERNEL_MAX_SEC          ; Maximum sector count
+    mov dh, 16                      ; Maximum sector count
     call load_mnex
-    jc .load_err
+    jc .kernel_fail
 
-    ; Jump to KERNEL.BIN
-    jmp KERNEL_SEG:KERNEL_OFF       ; Far jump to kernel at 0x0000:0x5000
+    ; --- Boot status: KERNEL.BIN loaded successfully -------------------------
+    mov si, msg_kernel
+    call boot_ok
 
-; --- Error handler -----------------------------------------------------------
-.load_err:
-    mov si, msg_err
-    call puts
-.halt:
-    cli
-    hlt
+    ; --- Transfer control to KERNEL.BIN --------------------------------------
+    ; Skip the 6-byte MNEX header (magic + sector count) to reach code entry.
+    jmp KERNEL_SEG:KERNEL_OFF + MNEX_HDR_SIZE
 
-; --- Shared binary loader (from src/include/load_binary.inc) -----------------
+; --- Error handler (fatal — prints [FAIL] and halts) -------------------------
+.kernel_fail:
+    mov si, msg_kernel
+    call boot_fail
+
+; --- Shared subroutines (from src/include/) -----------------------------------
+%include "find_file.inc"
 %include "load_binary.inc"
-
-; ---------------------------------------------------------------------------
-; puts — Print NUL-terminated string at DS:SI (minimal, for error messages)
-; ---------------------------------------------------------------------------
+%define BOOT_REGDUMP
+%include "boot_msg.inc"
 puts:
     lodsb
     test al, al
@@ -217,7 +227,12 @@ puts:
 ; =============================================================================
 ; DATA
 ; =============================================================================
-msg_err     db 'LOADER: Load error', 0
+msg_a20      db 'A20 gate enabled', 0
+msg_a20_warn db '[WARN] A20 gate not enabled', 13, 10, 0
+msg_kernel   db 'KERNEL.BIN', 0
+
+; 11-byte "8.3" filename for directory lookup (8 name + 3 ext, space-padded)
+fname_kernel db 'KERNEL  BIN'
 
 ; --- Disk Address Packet (DAP) for INT 13h AH=42h ---------------------------
 dap:

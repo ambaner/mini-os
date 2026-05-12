@@ -6,6 +6,57 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.6.0] — 2026-05-12
+
+### Added
+- **MNFS Flat Filesystem** — 1-sector directory table at partition sector 2,
+  up to 15 files, 32-byte entries with 8.3 names, attributes, and size tracking
+- **FS.BIN kernel module** (`src/fs/fs.asm`) — loaded at 0x0800, owns INT 0x81
+  filesystem syscall interface with 4 functions:
+  - `FS_LIST_FILES (0x01)` — copy cached directory to caller buffer
+  - `FS_FIND_FILE (0x02)` — search by 8.3 name, return sector/size
+  - `FS_READ_FILE (0x03)` — read file contents via kernel INT 0x80 disk I/O
+  - `FS_GET_INFO (0x04)` — return FS version, file count, max entries, used/capacity sectors
+- **`dir` shell command** — lists all files on disk with name, type, sectors, bytes,
+  total size summary, and disk space statistics (used/free/total KB)
+- **`find_file.inc`** — bootstrap directory lookup subroutine used by VBR, LOADER,
+  and KERNEL to find files by name without hardcoded offsets
+- **`mnfs.inc`** — shared constants for MNFS directory format, entry fields, and
+  INT 0x81 syscall numbers
+- **`doc/FILESYSTEM.md`** — complete MNFS specification (14 sections)
+- **Linux-style boot messages** — `[OK]`/`[FAIL]` status indicators during boot
+  with enhanced 12-register dump (AX-DX, SI/DI/SP/BP, DS/ES/SS/FL) on failure
+- **MNFS_HDR_CAPACITY** — directory header field at offset 8 stores partition
+  data capacity; stamped by `create-disk.ps1`, returned by `FS_GET_INFO`
+
+### Changed
+- **No more hardcoded disk offsets** — all binaries are located via MNFS directory
+  lookup at boot time; adding or resizing a file requires no source code changes
+- Boot chain now loads FS.BIN before SHELL: MBR → VBR → LOADER → KERNEL → FS.BIN → SHELL
+- KERNEL loads FS.BIN at 0x0800 (reuses LOADER's memory), calls init (installs INT 0x81),
+  then loads SHELL — both found via `find_file` directory search
+- VBR finds LOADER.BIN via directory lookup (was hardcoded partition offset 4)
+- LOADER finds KERNEL.BIN via directory lookup (was hardcoded partition offset 20)
+- `create-disk.ps1` completely rewritten: packs files contiguously after directory
+  sector, generates MNFS directory table automatically from binary sizes
+- `build.ps1` assembles 6 binaries (added FS.BIN)
+- `disk.inc` replaced by `mnfs.inc` (partition offsets eliminated)
+- KERNEL.BIN grew from 4 to 6 sectors (added find_file.inc + fname strings)
+- SHELL.BIN grew from 10 to 12 sectors (dir command + 512-byte directory buffer)
+- Version banner updated to v0.6.0
+
+### Fixed
+- **AH register overlap bugs** — systemic class where `mov ah, SYS_xxx` clobbers
+  bits 8-15 of AX/EAX when the same register holds data. Three instances fixed:
+  - `SYS_READ_SECTOR` (0x04): LBA input moved from EAX to **EDI**
+  - `SYS_PRINT_DEC16` (0x12): value input moved from AX to **DX**
+  - `SYS_PRINT_HEX16` (0x11): value input moved from AX to **DX**
+- **CF propagation through INT/IRET** — `iret` restores the caller's saved FLAGS,
+  silently discarding the handler's carry flag. Created `syscall_ret_cf` macro
+  (`sti; retf 2`) applied to 6 CF-returning kernel handlers
+- **`dir` column alignment** — numeric columns now right-justified with leading
+  spaces via `rjust_dec16` helper routine
+
 ## [0.5.0] — 2026-05-11
 
 ### Added

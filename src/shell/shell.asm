@@ -28,6 +28,7 @@
 ; =============================================================================
 
 %include "syscalls.inc"
+%include "mnfs.inc"
 
 [BITS 16]
 [ORG 0x3000]                        ; Kernel loads us here
@@ -36,7 +37,7 @@
 ; SHELL HEADER
 ; =============================================================================
 shell_magic     db 'MNEX'           ; Magic identifier — user-mode executable
-shell_sectors   dw 10               ; Shell size in sectors (updated as needed)
+shell_sectors   dw 12               ; Shell size in sectors (updated as needed)
 
 ; =============================================================================
 ; SHELL INIT
@@ -106,6 +107,12 @@ shell_prompt:
     call strcmp
     je cmd_reboot
 
+    ; "dir"
+    mov si, cmd_buf
+    mov di, str_dir
+    call strcmp
+    je cmd_dir
+
     ; Unknown command — print error and re-prompt
     mov si, msg_unknown
     mov ah, SYS_PRINT_STRING
@@ -155,6 +162,227 @@ cmd_ver:
     jmp shell_prompt
 
 ; =============================================================================
+; COMMAND: dir
+; List files in the MNFS filesystem via INT 0x81 (FS.BIN).
+;
+; Calls FS_LIST_FILES to get the cached directory, then parses and displays
+; each entry in a formatted table.
+; =============================================================================
+cmd_dir:
+    ; Print header
+    mov si, msg_dir_hdr
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    ; Call FS_LIST_FILES — copies directory into our buffer
+    mov ah, FS_LIST_FILES
+    push ds
+    pop es                          ; ES = DS (our segment)
+    mov bx, dir_buffer              ; ES:BX → 512-byte buffer
+    int 0x81                        ; CL = file count
+
+    ; Save file count
+    movzx cx, cl
+    test cx, cx
+    jz .dir_empty
+    mov [dir_file_count], cx
+
+    ; Print column headers
+    mov si, msg_dir_cols
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    ; SI → first directory entry (offset 32 in buffer = past header)
+    mov si, dir_buffer + MNFS_HDR_SIZE
+    mov cx, [dir_file_count]
+    xor dx, dx                      ; DX = total bytes accumulator (low word)
+
+.dir_loop:
+    push cx
+    push dx
+
+    ; Print "  " indent
+    push si
+    mov si, msg_dir_indent
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    pop si
+
+    ; Print filename (8 bytes) — SI → entry name field
+    push si
+    mov cx, 8
+.dir_print_name:
+    lodsb
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
+    dec cx
+    jnz .dir_print_name
+
+    ; Print dot between name and extension
+    mov al, '.'
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
+
+    ; Print extension (3 bytes)
+    mov cx, 3
+.dir_print_ext:
+    lodsb
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
+    dec cx
+    jnz .dir_print_ext
+    pop si                          ; Restore SI to entry start
+
+    ; Print spaces + attribute type
+    push si
+    mov si, msg_dir_space
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    pop si
+
+    ; Check attributes at entry + 11
+    mov al, [si + MNFS_ENT_ATTR]
+    test al, MNFS_ATTR_SYSTEM
+    jnz .dir_sys
+    test al, MNFS_ATTR_EXEC
+    jnz .dir_exe
+    ; Data file
+    push si
+    mov si, msg_dir_dat
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    pop si
+    jmp .dir_size
+
+.dir_sys:
+    push si
+    mov si, msg_dir_sys
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    pop si
+    jmp .dir_size
+
+.dir_exe:
+    push si
+    mov si, msg_dir_exe
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    pop si
+
+.dir_size:
+    ; Print size in sectors, right-justified in 3-char field
+    mov dx, [si + MNFS_ENT_SECTORS]
+    mov cl, 3
+    call rjust_dec16
+
+    push si
+    mov si, msg_dir_sec_suffix
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    pop si
+
+    ; Print size in bytes, right-justified in 6-char field
+    mov dx, [si + MNFS_ENT_BYTES]
+    push dx                         ; Save for total accumulation
+    mov cl, 6
+    call rjust_dec16
+
+    push si
+    mov si, msg_dir_bytes_suffix
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    pop si
+
+    ; Accumulate total bytes
+    pop ax                          ; AX = this file's size (low word)
+    pop dx                          ; DX = running total
+    add dx, ax
+    push dx
+
+    ; Advance to next entry
+    add si, MNFS_ENTRY_SIZE
+    pop dx
+    pop cx
+    dec cx
+    jnz .dir_loop
+
+    ; Print summary line
+    push dx                         ; Save total bytes
+    mov si, msg_dir_sep
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    mov dx, [dir_file_count]
+    mov ah, SYS_PRINT_DEC16
+    int 0x80
+
+    mov si, msg_dir_summary
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    pop dx                          ; DX = total bytes
+    mov ah, SYS_PRINT_DEC16
+    int 0x80
+
+    mov si, msg_dir_total_bytes
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    ; --- Disk space statistics via FS_GET_INFO --------------------------------
+    mov ah, FS_GET_INFO             ; Returns: DX=used sectors, BX=capacity
+    int 0x81
+
+    ; Save returned values
+    mov [dir_used_sec], dx
+    mov [dir_cap_sec], bx
+
+    ; "  Used:  X KB / Y KB"
+    mov si, msg_dir_used
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    mov dx, [dir_used_sec]
+    shr dx, 1                       ; Sectors → KB (÷2)
+    mov cl, 6
+    call rjust_dec16
+
+    mov si, msg_dir_of
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    mov dx, [dir_cap_sec]
+    shr dx, 1                       ; Sectors → KB
+    mov ah, SYS_PRINT_DEC16
+    int 0x80
+
+    mov si, msg_dir_kb
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    ; "  Free:  X KB"
+    mov si, msg_dir_free
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    mov dx, [dir_cap_sec]
+    sub dx, [dir_used_sec]
+    shr dx, 1                       ; Sectors → KB
+    mov cl, 6
+    call rjust_dec16
+
+    mov si, msg_dir_kb
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    jmp shell_prompt
+
+.dir_empty:
+    mov si, msg_dir_empty
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    jmp shell_prompt
+
+; =============================================================================
 ; COMMAND: mem
 ; Display detailed memory information using kernel syscalls.
 ; =============================================================================
@@ -170,7 +398,8 @@ cmd_mem:
 
     mov ah, SYS_GET_CONV_MEM        ; Returns AX = conventional KB
     int 0x80
-    mov ah, SYS_PRINT_DEC16         ; Print AX as decimal
+    mov dx, ax
+    mov ah, SYS_PRINT_DEC16         ; Print DX as decimal
     int 0x80
 
     mov si, msg_kb
@@ -186,7 +415,8 @@ cmd_mem:
     int 0x80
     jc .mem_no_ext
 
-    mov ah, SYS_PRINT_DEC16         ; Print AX as decimal
+    mov dx, ax
+    mov ah, SYS_PRINT_DEC16         ; Print DX as decimal
     int 0x80
     mov si, msg_kb
     mov ah, SYS_PRINT_STRING
@@ -248,6 +478,7 @@ cmd_mem:
     mov si, msg_layout_hdr
     mov ah, SYS_PRINT_STRING
     int 0x80
+    ; Print "    0x00800-0x027FF" — but now it's FS.BIN at runtime
     mov si, msg_layout
     mov ah, SYS_PRINT_STRING
     int 0x80
@@ -403,6 +634,7 @@ cmd_sysinfo:
     mov eax, [cpuid_ver]
     shr eax, 8
     and ax, 0x0F
+    mov dx, ax
     mov ah, SYS_PRINT_DEC16
     int 0x80
     mov si, msg_crlf
@@ -416,6 +648,7 @@ cmd_sysinfo:
     mov eax, [cpuid_ver]
     shr eax, 4
     and ax, 0x0F
+    mov dx, ax
     mov ah, SYS_PRINT_DEC16
     int 0x80
     mov si, msg_crlf
@@ -428,6 +661,7 @@ cmd_sysinfo:
     int 0x80
     mov eax, [cpuid_ver]
     and ax, 0x0F
+    mov dx, ax
     mov ah, SYS_PRINT_DEC16
     int 0x80
     mov si, msg_crlf
@@ -579,6 +813,7 @@ cmd_sysinfo:
     int 0x80
     mov ah, SYS_GET_CONV_MEM        ; Returns AX = conventional KB
     int 0x80
+    mov dx, ax
     mov ah, SYS_PRINT_DEC16
     int 0x80
     mov si, msg_kb
@@ -592,6 +827,7 @@ cmd_sysinfo:
     mov ah, SYS_GET_EXT_MEM         ; Returns AX = extended KB, CF=err
     int 0x80
     jc .no_ext
+    mov dx, ax
     mov ah, SYS_PRINT_DEC16
     int 0x80
     mov si, msg_kb
@@ -749,6 +985,7 @@ cmd_sysinfo:
     jz .com_none
 
     ; Port present — print its I/O address as hex
+    mov dx, ax
     mov ah, SYS_PRINT_HEX16
     int 0x80
     mov si, msg_crlf
@@ -814,6 +1051,7 @@ cmd_sysinfo:
     test ax, ax
     jz .lpt_none
 
+    mov dx, ax
     mov ah, SYS_PRINT_HEX16
     int 0x80
     mov si, msg_crlf
@@ -838,6 +1076,7 @@ cmd_sysinfo:
     int 0x80
     mov ah, SYS_GET_EQUIP           ; Returns AX = equipment word
     int 0x80
+    mov dx, ax
     mov ah, SYS_PRINT_HEX16
     int 0x80
     mov si, msg_crlf
@@ -864,6 +1103,7 @@ cmd_sysinfo:
     mov bx, 0x044A                  ; BDA offset for screen columns
     mov ah, SYS_GET_BDA_WORD        ; Returns AX = word
     int 0x80
+    mov dx, ax
     mov ah, SYS_PRINT_DEC16
     int 0x80
     mov si, msg_crlf
@@ -877,6 +1117,7 @@ cmd_sysinfo:
     mov bx, 0x044C                  ; BDA offset for video page size
     mov ah, SYS_GET_BDA_WORD
     int 0x80
+    mov dx, ax
     mov ah, SYS_PRINT_DEC16
     int 0x80
     mov si, msg_bytes
@@ -1010,7 +1251,7 @@ cmd_sysinfo:
     int 0x80
     mov al, cl
     and al, 0x3F                    ; Mask to 6 bits = sectors/track
-    xor ah, ah
+    movzx dx, al
     mov ah, SYS_PRINT_DEC16
     int 0x80
     mov si, msg_crlf
@@ -1024,7 +1265,7 @@ cmd_sysinfo:
     int 0x80
     mov al, dh
     inc al                          ; DH is max head index, +1 = total heads
-    xor ah, ah
+    movzx dx, al
     mov ah, SYS_PRINT_DEC16
     int 0x80
     mov si, msg_crlf
@@ -1142,14 +1383,13 @@ cmd_sysinfo:
     int 0x80
     push ax                         ; Save offset
 
-    ; Print segment:offset
-    mov ax, dx                      ; Print segment first
+    ; Print segment:offset — DX = segment from SYS_GET_IVT
     mov ah, SYS_PRINT_HEX16
     int 0x80
     mov al, ':'
     mov ah, SYS_PRINT_CHAR
     int 0x80
-    pop ax                          ; Restore offset
+    pop dx                          ; Restore offset into DX
     mov ah, SYS_PRINT_HEX16
     int 0x80
 
@@ -1290,13 +1530,59 @@ strcmp:
     or al, 1                        ; Clear ZF (not equal)
     ret
 
+; ---------------------------------------------------------------------------
+; rjust_dec16 — Print DX as unsigned decimal, right-justified in CL-wide field
+;
+; Input:  DX = value to print, CL = minimum field width
+; Output: none
+; Preserves: AX, BX, CX, DX, SI, DI
+; ---------------------------------------------------------------------------
+rjust_dec16:
+    push ax
+    push bx
+    push cx
+    push dx
+
+    ; Count digits of DX
+    mov ax, dx
+    xor ch, ch                      ; CH = digit count
+.rj_count:
+    inc ch
+    xor dx, dx
+    mov bx, 10
+    div bx
+    test ax, ax
+    jnz .rj_count
+
+    ; Print (CL - CH) leading spaces
+    sub cl, ch
+    jbe .rj_print
+.rj_pad:
+    push cx
+    mov al, ' '
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
+    pop cx
+    dec cl
+    jnz .rj_pad
+
+.rj_print:
+    pop dx                          ; Restore original value
+    mov ah, SYS_PRINT_DEC16
+    int 0x80
+
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; =============================================================================
 ; DATA — String constants
 ; =============================================================================
 
 ; --- Shell strings -----------------------------------------------------------
 msg_banner      db 13, 10
-                db '  MNOS v0.5.0', 13, 10
+                db '  MNOS v0.6.0', 13, 10
                 db 13, 10, 0
 
 msg_prompt      db 'mnos:\>', 0
@@ -1306,6 +1592,7 @@ msg_unknown     db 'Unknown command: ', 0
 msg_help_text   db 'Available commands:', 13, 10
                 db '  sysinfo  - Display system information (5 pages)', 13, 10
                 db '  mem      - Detailed memory info and layout', 13, 10
+                db '  dir      - List files on disk (MNFS)', 13, 10
                 db '  ver      - Show version and build info', 13, 10
                 db '  help     - Show this help message', 13, 10
                 db '  cls      - Clear the screen', 13, 10
@@ -1318,13 +1605,15 @@ str_mem         db 'mem', 0
 str_ver         db 'ver', 0
 str_cls         db 'cls', 0
 str_reboot      db 'reboot', 0
+str_dir         db 'dir', 0
 
 ; --- ver command strings -----------------------------------------------------
-msg_ver_text    db '  MNOS v0.5.0', 13, 10
+msg_ver_text    db '  MNOS v0.6.0', 13, 10
                 db '  Arch:      x86 real mode (16-bit)', 13, 10
                 db '  Assembler: NASM', 13, 10
                 db '  Platform:  Hyper-V Gen 1', 13, 10
                 db '  Boot:      MBR -> VBR -> LOADER -> KERNEL -> SHELL', 13, 10
+                db '  Filesystem: MNFS v1 (flat, INT 0x81)', 13, 10
                 db '  Disk:      16 MB fixed VHD', 13, 10
                 db '  Source:    github.com/ambaner/mini-os', 13, 10, 0
 
@@ -1415,7 +1704,7 @@ msg_layout      db '    0x00000-0x003FF  1 KB    IVT (Interrupt Vector Table)', 
                 db '    0x00400-0x004FF  256 B   BDA (BIOS Data Area)', 13, 10
                 db '    0x00500-0x005FF  256 B   Free (BIOS scratch)', 13, 10
                 db '    0x00600-0x0060F  16 B    Boot Info Block (BIB)', 13, 10
-                db '    0x00800-0x027FF  8 KB    LOADER.BIN', 13, 10
+                db '    0x00800-0x027FF  8 KB    FS.BIN (INT 0x81)', 13, 10
                 db '    0x03000-0x04FFF  8 KB    SHELL.BIN (this code)', 13, 10
                 db '    0x05000-0x06FFF  8 KB    KERNEL.BIN (INT 0x80)', 13, 10
                 db '    0x07000-0x07BFF  3 KB    Stack', 13, 10
@@ -1470,11 +1759,37 @@ cpuid_ver       dd 0
 cpuid_feat_edx  dd 0
 cpuid_feat_ecx  dd 0
 
+; --- dir command strings -------------------------------------------------------
+msg_dir_hdr     db 13, 10, '  Volume: MNFS v1', 13, 10, 0
+msg_dir_cols    db '  Name          Type   Sec    Bytes', 13, 10
+                db '  -----------------------------------', 13, 10, 0
+msg_dir_indent  db '  ', 0
+msg_dir_space   db '   ', 0
+msg_dir_sys     db 'SYS  ', 0
+msg_dir_exe     db 'EXE  ', 0
+msg_dir_dat     db '---  ', 0
+msg_dir_sec_suffix db ' sec', 0
+msg_dir_bytes_suffix db 13, 10, 0
+msg_dir_sep     db '  -----------------------------------', 13, 10, '  ', 0
+msg_dir_summary db ' file(s)           ', 0
+msg_dir_total_bytes db ' bytes', 13, 10, 0
+msg_dir_used    db '  Used: ', 0
+msg_dir_free    db '  Free: ', 0
+msg_dir_of      db ' / ', 0
+msg_dir_kb      db ' KB', 13, 10, 0
+msg_dir_empty   db '  (no files)', 13, 10, 0
+
+; --- dir command data ---------------------------------------------------------
+dir_file_count  dw 0                ; File count for dir command
+dir_used_sec    dw 0                ; Used sectors (from FS_GET_INFO)
+dir_cap_sec     dw 0                ; Capacity sectors (from FS_GET_INFO)
+dir_buffer      times 512 db 0      ; Buffer for MNFS directory data
+
 ; IVT loop counter
 ivt_index       db 0
 
 ; =============================================================================
-; PADDING — fill to sector boundary (10 sectors = 5120 bytes)
+; PADDING — fill to sector boundary (12 sectors = 6144 bytes)
 ; =============================================================================
-times (10 * 512) - ($ - $$) db 0
+times (12 * 512) - ($ - $$) db 0
 
