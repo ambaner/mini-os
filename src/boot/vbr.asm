@@ -106,6 +106,12 @@ shell_prompt:
     call strcmp
     je cmd_help
 
+    ; "mem" -> detailed memory information
+    mov si, cmd_buf
+    mov di, str_mem
+    call strcmp
+    je cmd_mem
+
     ; "cls" -> clear screen and re-show banner
     mov si, cmd_buf
     mov di, str_cls
@@ -150,6 +156,181 @@ cmd_reboot:
 ; =============================================================================
 cmd_help:
     mov si, msg_help_text
+    call puts
+    jmp shell_prompt
+
+; =============================================================================
+; COMMAND: mem
+; Display detailed memory information:
+;   - Conventional memory (INT 12h)
+;   - Extended memory (INT 15h AH=88h)
+;   - A20 gate status (wrap-around test)
+;   - Real-mode memory layout map
+;   - E820 BIOS memory map
+; =============================================================================
+cmd_mem:
+    mov si, msg_mem_hdr
+    call puts
+
+    ; --- Conventional memory (INT 12h) ---------------------------------------
+    mov si, msg_conv_mem
+    call puts
+    int 0x12                        ; AX = conventional memory in KB
+    call print_dec16
+    mov si, msg_kb
+    call puts
+
+    ; --- Extended memory (INT 15h AH=88h) ------------------------------------
+    mov si, msg_ext_mem
+    call puts
+    mov ah, 0x88
+    int 0x15
+    jc .mem_no_ext
+    call print_dec16
+    mov si, msg_kb
+    call puts
+    jmp .mem_a20
+
+.mem_no_ext:
+    mov si, msg_na
+    call puts
+
+.mem_a20:
+    ; --- A20 gate status -----------------------------------------------------
+    ; Test whether the A20 address line is enabled by checking if memory
+    ; wraps around at the 1 MB boundary.
+    ;
+    ; How it works:
+    ;   Linear address 0x0000:0x0500 and 0xFFFF:0x0510 map to:
+    ;     0x00000500  and  0x00100500 (if A20 enabled)
+    ;     0x00000500  and  0x00000500 (if A20 disabled — wraps around)
+    ;
+    ;   We save the byte at [0x0000:0x0500], write a test value to
+    ;   [0xFFFF:0x0510], and check if [0x0000:0x0500] changed.
+    ;   If it changed, A20 is disabled (addresses wrap).
+    mov si, msg_a20
+    call puts
+
+    push ds
+    push es
+
+    xor ax, ax
+    mov ds, ax                      ; DS = 0x0000
+    mov ax, 0xFFFF
+    mov es, ax                      ; ES = 0xFFFF
+
+    ; Save original bytes at both locations
+    mov al, [ds:0x0500]
+    push ax                         ; Save [0x0000:0x0500]
+    mov al, [es:0x0510]
+    push ax                         ; Save [0xFFFF:0x0510]
+
+    ; Write test pattern
+    mov byte [es:0x0510], 0x13      ; Write to 0xFFFF:0x0510
+    mov byte [ds:0x0500], 0x37      ; Write different value to 0x0000:0x0500
+
+    ; If A20 is disabled, writing to 0x0000:0x0500 also changed 0xFFFF:0x0510
+    cmp byte [es:0x0510], 0x37
+    je .a20_disabled
+
+    ; A20 is enabled (the two addresses are independent)
+    mov si, msg_a20_on
+    jmp .a20_restore
+
+.a20_disabled:
+    mov si, msg_a20_off
+
+.a20_restore:
+    ; Restore original bytes
+    pop ax
+    mov [es:0x0510], al
+    pop ax
+    mov [ds:0x0500], al
+
+    pop es
+    pop ds
+
+    call puts
+
+    ; --- Real-mode memory layout ---------------------------------------------
+    mov si, msg_layout_hdr
+    call puts
+    mov si, msg_layout
+    call puts
+
+    ; --- E820 Memory Map -----------------------------------------------------
+    mov si, msg_e820_hdr
+    call puts
+
+    xor ebx, ebx
+    mov di, e820_buf
+
+.mem_e820_loop:
+    mov eax, 0x0000E820
+    mov ecx, 20
+    mov edx, 0x534D4150             ; 'SMAP'
+    int 0x15
+
+    jc .mem_e820_done
+    cmp eax, 0x534D4150
+    jne .mem_e820_done
+
+    push ebx
+
+    mov si, msg_e820_base
+    call puts
+    mov al, [e820_buf+3]
+    call puthex8
+    mov al, [e820_buf+2]
+    call puthex8
+    mov al, [e820_buf+1]
+    call puthex8
+    mov al, [e820_buf]
+    call puthex8
+
+    mov si, msg_e820_len
+    call puts
+    mov al, [e820_buf+11]
+    call puthex8
+    mov al, [e820_buf+10]
+    call puthex8
+    mov al, [e820_buf+9]
+    call puthex8
+    mov al, [e820_buf+8]
+    call puthex8
+
+    mov si, msg_e820_type
+    call puts
+    mov al, [e820_buf+16]
+    add al, '0'
+    call putc
+
+    mov al, [e820_buf+16]
+    mov si, msg_type_usable
+    cmp al, 1
+    je .mem_print_type
+    mov si, msg_type_reserved
+    cmp al, 2
+    je .mem_print_type
+    mov si, msg_type_acpi
+    cmp al, 3
+    je .mem_print_type
+    mov si, msg_type_nvs
+    cmp al, 4
+    je .mem_print_type
+    mov si, msg_type_bad
+    cmp al, 5
+    je .mem_print_type
+    mov si, msg_type_unknown
+.mem_print_type:
+    call puts
+
+    pop ebx
+    test ebx, ebx
+    jnz .mem_e820_loop
+
+.mem_e820_done:
+    mov si, msg_crlf
     call puts
     jmp shell_prompt
 
@@ -797,7 +978,7 @@ wait_key:
 
 ; --- Shell strings -----------------------------------------------------------
 msg_banner      db 13, 10
-                db '  MNOS v0.2.5', 13, 10
+                db '  MNOS v0.2.6', 13, 10
                 db 13, 10, 0
 
 msg_prompt      db 'mnos:\>', 0
@@ -806,6 +987,7 @@ msg_unknown     db 'Unknown command: ', 0
 
 msg_help_text   db 'Available commands:', 13, 10
                 db '  sysinfo  - Display system information (4 pages)', 13, 10
+                db '  mem      - Detailed memory info and layout', 13, 10
                 db '  help     - Show this help message', 13, 10
                 db '  cls      - Clear the screen', 13, 10
                 db '  reboot   - Restart the system', 13, 10, 0
@@ -813,6 +995,7 @@ msg_help_text   db 'Available commands:', 13, 10
 ; --- Command name strings (for strcmp) ----------------------------------------
 str_sysinfo     db 'sysinfo', 0
 str_help        db 'help', 0
+str_mem         db 'mem', 0
 str_cls         db 'cls', 0
 str_reboot      db 'reboot', 0
 
@@ -880,6 +1063,23 @@ msg_ivt_07      db '  No Coproc', 13, 10, 0
 
 ; --- Sysinfo done message ----------------------------------------------------
 msg_sysinfo_done db 13, 10, '  System info complete.', 13, 10, 0
+
+; --- mem command strings ------------------------------------------------------
+msg_mem_hdr     db 13, 10, '--- Memory Information ---', 13, 10, 0
+
+msg_a20         db '  A20 gate:     ', 0
+msg_a20_on      db 'Enabled (normal for Hyper-V)', 13, 10, 0
+msg_a20_off     db 'Disabled (addresses wrap at 1 MB)', 13, 10, 0
+
+msg_layout_hdr  db 13, 10, '  Real-mode memory layout:', 13, 10, 0
+msg_layout      db '    0x00000-0x003FF  1 KB    IVT (Interrupt Vector Table)', 13, 10
+                db '    0x00400-0x004FF  256 B   BDA (BIOS Data Area)', 13, 10
+                db '    0x00500-0x07BFF  30 KB   Free (usable by OS)', 13, 10
+                db '    0x07C00-0x09FFF  9 KB    Boot area (MBR/VBR + stack)', 13, 10
+                db '    0x0A000-0x0BFFF  8 KB    Video RAM (EGA/VGA)', 13, 10
+                db '    0x0B800-0x0BFFF  2 KB    Color text video memory', 13, 10
+                db '    0x0C000-0x0FFFF  16 KB   ROM area (BIOS, VGA BIOS)', 13, 10
+                db '    0x10000-0xFFFFF  960 KB  Extended area (requires A20)', 13, 10, 0
 
 ; --- Shared strings ----------------------------------------------------------
 msg_crlf        db 13, 10, 0

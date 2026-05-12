@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.6] — 2026-05-11
+
+### Added
+- **`mem` command** — detailed memory information display:
+  - Conventional memory (INT 12h)
+  - Extended memory (INT 15h AH=88h)
+  - A20 gate status (wrap-around test at 0x0000:0x0500 vs 0xFFFF:0x0510)
+  - Real-mode memory layout map (IVT, BDA, free area, boot area, video, ROM)
+  - E820 BIOS memory map with type labels
+
+### Changed
+- Help text updated to include `mem` command
+- Version banner updated to v0.2.6
+
 ## [0.2.5] — 2026-05-11
 
 ### Added

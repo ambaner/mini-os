@@ -59,7 +59,7 @@ jobs:
 
         A minimalistic bootable OS. MBR reads the partition table, loads the
         multi-sector VBR from the active partition. The VBR boots into an
-        interactive shell (mnos:\>) with commands like sysinfo, help, cls, reboot.
+        interactive shell (mnos:\>) with commands like sysinfo, mem, help, cls, reboot.
 
         CONTENTS
         --------

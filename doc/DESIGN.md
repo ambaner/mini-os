@@ -9,7 +9,8 @@ OS-development experience.
 
 The current milestone is **M2: Interactive Shell** — the MBR reads and displays
 the partition table, chain-loads the multi-sector VBR, and the VBR drops into an
-interactive command shell with a `mnos:\>` prompt.
+interactive command shell with a `mnos:\>` prompt.  Commands include `sysinfo`,
+`mem`, `help`, `cls`, and `reboot`.
 
 ### Design Principles
 
@@ -152,46 +153,6 @@ Sector 0 contains the header, a near-jump trampoline, and the boot signature
 (`0xAA55`) at offset 510. The actual VBR code begins in sector 1 (offset 512),
 since the code + data exceed 510 bytes.
 
-#### Interactive Shell
-
-After clearing the screen and displaying a version banner (`MNOS v0.2.5`), the
-VBR enters an interactive command loop with a `mnos:\>` prompt.  The shell reads
-a line of input via INT 16h, converts to lowercase, and dispatches to a handler:
-
-| Command | Description |
-|---------|-------------|
-| `sysinfo` | Display 4 pages of system information (memory, BDA, video/disk, IVT) |
-| `help` | List available commands |
-| `cls` | Clear the screen and re-display banner |
-| `reboot` | Warm-reboot the system (BIOS reset vector) |
-
-Unknown commands print `Unknown command: <input>` and re-prompt.
-
-#### System Information Display (`sysinfo`)
-
-The `sysinfo` command displays four pages of system information, with "Press any key..."
-between each page and a screen clear before each new page:
-
-| Page | Title | Information |
-|------|-------|-------------|
-| 1 | CPU & Memory | INT 12h conventional memory, INT 15h AH=88h extended memory, E820 memory map |
-| 2 | BIOS Data Area | COM/LPT port addresses, equipment word, video mode, columns, page size |
-| 3 | Video & Disk | Current video mode, cursor position, video memory base, boot drive geometry |
-| 4 | IVT Sample | First 8 interrupt vectors (INT 0–7) with descriptions |
-
-#### VBR Subroutines
-
-| Routine | Description |
-|---------|-------------|
-| `readline` | Read line of input into buffer (backspace, auto-lowercase) |
-| `strcmp` | Compare two NUL-terminated strings, set ZF if equal |
-| `puts` | Print NUL-terminated string via INT 10h AH=0Eh |
-| `putc` | Print single character |
-| `puthex8` | Print AL as two hex digits |
-| `print_hex16` | Print AX as four hex digits |
-| `print_dec16` | Print AX as unsigned decimal |
-| `wait_key` | Print prompt, wait for keypress, clear screen |
-
 ### 2.5 Disk Layout
 
 ```
@@ -207,9 +168,97 @@ with no headers — exactly what the BIOS expects.
 
 ---
 
-## 3. Disk Image: VHD Format
+## 3. Interactive Shell
 
-### 3.1 Why VHD?
+After the MBR chain-loads the VBR, the VBR clears the screen, displays a version
+banner (`MNOS v0.2.6`), and enters an interactive command loop with a `mnos:\>`
+prompt.
+
+### 3.1 Shell Architecture
+
+The shell is a simple read-eval-print loop:
+
+1. Display the prompt `mnos:\>`
+2. Read a line of input via `readline` (INT 16h, with backspace and auto-lowercase)
+3. Compare the input against known command strings via `strcmp`
+4. Dispatch to the matching handler, or print `Unknown command: <input>`
+5. After the command completes, return to step 1
+
+### 3.2 Commands
+
+| Command | Description |
+|---------|-------------|
+| `sysinfo` | Display 4 pages of system information (memory, BDA, video/disk, IVT) |
+| `mem` | Detailed memory info: conventional/extended RAM, A20 status, layout, E820 map |
+| `help` | List available commands |
+| `cls` | Clear the screen and re-display banner |
+| `reboot` | Warm-reboot the system (BIOS reset vector) |
+
+Unknown commands print `Unknown command: <input>` and re-prompt.
+
+### 3.3 `sysinfo` Command
+
+Displays four pages of system information, with "Press any key..." between each
+page and a screen clear before each new page:
+
+| Page | Title | Information |
+|------|-------|-------------|
+| 1 | CPU & Memory | INT 12h conventional memory, INT 15h AH=88h extended memory, E820 memory map |
+| 2 | BIOS Data Area | COM/LPT port addresses, equipment word, video mode, columns, page size |
+| 3 | Video & Disk | Current video mode, cursor position, video memory base, boot drive geometry |
+| 4 | IVT Sample | First 8 interrupt vectors (INT 0–7) with descriptions |
+
+### 3.4 `mem` Command
+
+Displays detailed memory information on a single page:
+
+- **Conventional memory** — INT 12h (typically 640 KB)
+- **Extended memory** — INT 15h AH=88h (memory above 1 MB)
+- **A20 gate status** — Tests the address line by writing to 0x0000:0x0500 and
+  0xFFFF:0x0510; if they alias, A20 is disabled (addresses wrap at 1 MB)
+- **Real-mode memory layout** — Static map showing IVT, BDA, free area, boot
+  area, video RAM, ROM area, and extended area
+- **E820 memory map** — Full BIOS-reported memory map with base, length, and type
+
+#### A20 Gate — Background
+
+The A20 gate controls whether the CPU's 21st address line (A20) is active.  On
+the original IBM PC/AT (1984), this line was disabled at boot to maintain backward
+compatibility with the 8086, which only had 20 address lines and naturally wrapped
+addresses above 1 MB.  Some old DOS programs relied on this wrapping behavior.
+
+The A20 detection works by testing if two addresses that differ only in bit 20
+(0x0000:0x0500 = linear 0x00500, and 0xFFFF:0x0510 = linear 0x100500) point to
+the same physical byte.  If writing to one changes the other, addresses are
+wrapping — A20 is disabled.
+
+**In practice, most modern systems (including Hyper-V, QEMU, and modern BIOS
+firmware) enable A20 by default during POST.**  The A20 gate is essentially a
+legacy concern.  You would only see "Disabled" on vintage hardware or emulators
+configured for strict 8086 compatibility.
+
+When we later switch to protected mode, we will explicitly enable A20 as a
+safety measure (in case any environment leaves it off), using the keyboard
+controller method (port 0x64/0x60) or the fast A20 method (port 0x92).
+
+### 3.5 VBR Subroutines
+
+| Routine | Description |
+|---------|-------------|
+| `readline` | Read line of input into buffer (backspace, auto-lowercase) |
+| `strcmp` | Compare two NUL-terminated strings, set ZF if equal |
+| `puts` | Print NUL-terminated string via INT 10h AH=0Eh |
+| `putc` | Print single character |
+| `puthex8` | Print AL as two hex digits |
+| `print_hex16` | Print AX as four hex digits |
+| `print_dec16` | Print AX as unsigned decimal |
+| `wait_key` | Print prompt, wait for keypress, clear screen |
+
+---
+
+## 4. Disk Image: VHD Format
+
+### 4.1 Why VHD?
 
 Hyper-V natively supports VHD (Virtual Hard Disk) files. The **fixed-size VHD** format
 is the simplest variant: raw disk data followed by a 512-byte footer. No dynamic
@@ -224,7 +273,7 @@ allocation, no differencing chains, no BAT — just:
 └──────────────────────────────────────┘
 ```
 
-### 3.2 VHD Footer Structure
+### 4.2 VHD Footer Structure
 
 The footer follows the **VHD 1.0 specification** (originally by Connectix, later
 Microsoft). Key fields:
@@ -246,7 +295,7 @@ Microsoft). Key fields:
 | 68     | 16   | Unique ID          | Random UUID                 |
 | 84     | 1    | Saved State        | `0`                         |
 
-### 3.3 CHS Geometry
+### 4.3 CHS Geometry
 
 The VHD spec requires CHS geometry derived from total sector count. The algorithm
 (implemented in `create-vhd.ps1`) selects sectors/track from {17, 31, 63, 255} and
@@ -254,23 +303,23 @@ heads from {4..16} to stay within the 1024-cylinder BIOS limit where possible.
 
 For 16 MB (32,768 sectors): **C/H/S = 481/4/17**.
 
-### 3.4 Disk Size
+### 4.4 Disk Size
 
 The default disk size is **16 MB**. Hyper-V supports VHDs as small as 3 MB, so 16 MB is
 well within range. The size is configurable via `build.bat` (edit `tools/build.ps1` to change `-DiskSizeMB`).
 
 ---
 
-## 4. Toolchain
+## 5. Toolchain
 
-### 4.1 NASM (Netwide Assembler)
+### 5.1 NASM (Netwide Assembler)
 
 - **Version**: 2.16.03 (win64)
 - **Role**: Assembles 16-bit x86 real-mode code into flat binary (`-f bin`).
 - **Acquisition**: `build.bat` auto-downloads from `nasm.us` into `tools/nasm/` if not
   found on PATH. The downloaded copy is gitignored.
 
-### 4.2 PowerShell 7+
+### 5.2 PowerShell 7+
 
 All build and deployment scripts require **PowerShell 7.0 or later**. Each script
 includes a `#Requires -Version 7.0` directive that produces a clear error on older
@@ -283,16 +332,16 @@ versions.
 | `tools/create-disk.ps1` | Stamp partition table + VBR into raw image | Not required (called by build.ps1) |
 | `tools/create-vhd.ps1` | Raw image → VHD conversion | Not required (called by build.ps1) |
 
-### 4.3 No Other Dependencies
+### 5.3 No Other Dependencies
 
 There is no C compiler, no linker, no Python, no WSL requirement. The entire toolchain
 is PowerShell + NASM.
 
 ---
 
-## 5. Build System
+## 6. Build System
 
-### 5.1 Build Pipeline
+### 6.1 Build Pipeline
 
 ```
  build.bat
@@ -312,7 +361,7 @@ is PowerShell + NASM.
             └─ Appends 512-byte VHD footer
 ```
 
-### 5.2 Build Outputs
+### 6.2 Build Outputs
 
 | File | Size | Description |
 |------|------|-------------|
@@ -321,7 +370,7 @@ is PowerShell + NASM.
 | `build/boot/mini-os.img` | 16 MB | Partitioned raw disk image |
 | `build/boot/mini-os.vhd` | 16 MB + 512 B | Bootable fixed VHD |
 
-### 5.3 Clean Build
+### 6.3 Clean Build
 
 ```cmd
 build.bat clean
@@ -331,9 +380,9 @@ Removes the `build/` directory before assembling.
 
 ---
 
-## 6. VM Deployment (setup-vm.bat)
+## 7. VM Deployment (setup-vm.bat)
 
-### 6.1 First Run
+### 7.1 First Run
 
 1. Prompts for VM name (default: `mini-os`) and file location.
 2. Creates `<location>/HDD/` and copies `build/boot/mini-os.vhd` there.
@@ -344,7 +393,7 @@ Removes the `build/` directory before assembling.
    - Checkpoints disabled
 4. Prints `Start-VM` / `vmconnect` commands.
 
-### 6.2 Subsequent Runs (Update Flow)
+### 7.2 Subsequent Runs (Update Flow)
 
 1. Detects existing VM by name.
 2. Stops the VM if running (`Stop-VM -TurnOff`).
@@ -360,7 +409,7 @@ edit mbr.asm  →  build.bat  →  setup-vm.bat  →  Start-VM
 
 ---
 
-## 7. Project Structure
+## 8. Project Structure
 
 ```
 mini-os/
@@ -400,7 +449,7 @@ mini-os/
 
 ---
 
-## 8. Future Roadmap
+## 9. Future Roadmap
 
 This document will be updated as the project evolves. Planned milestones:
 
@@ -417,7 +466,7 @@ This document will be updated as the project evolves. Planned milestones:
 
 ---
 
-## 9. References
+## 10. References
 
 - [NASM Manual](https://www.nasm.us/xdoc/2.16.03/html/nasmdoc0.html)
 - [VHD Specification (Microsoft)](https://learn.microsoft.com/en-us/windows/win32/vstor/about-vhd)

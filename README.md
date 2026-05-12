@@ -92,6 +92,28 @@ mini-os/
 └── README.md
 ```
 
+## Design & Architecture
+
+See **[doc/DESIGN.md](doc/DESIGN.md)** for the full architecture document — boot sequence,
+memory layout, VHD format, shell internals, disk layout, and project roadmap.
+
+## Version History
+
+Each version is a tagged release you can checkout to see the project at that stage.
+
+| Tag | Description | What you'll see |
+|-----|-------------|-----------------|
+| `v0.1.0` | **M0 — Hello World** | MBR prints "mini-os" and halts |
+| `v0.2.0` | **M1 — Partition table + VBR** | MBR scans partition table, chain-loads VBR from active partition |
+| `v0.2.1` | **Multi-sector boot area** | VBR header (`MNOS` magic + sector count), MBR two-phase load, heavily commented code |
+| `v0.2.2` | **System info display** | VBR shows 4 pages of hardware info (memory, BDA, video/disk, IVT) |
+| `v0.2.5` | **M2 — Interactive shell** | `mnos:\>` prompt with `sysinfo`, `help`, `cls`, `reboot` commands |
+| `v0.2.6` | **`mem` command** | Detailed memory info: conventional/extended RAM, A20 gate status, memory layout, E820 map |
+
+```cmd
+git checkout v0.1.0      # see the project at any prior milestone
+```
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
