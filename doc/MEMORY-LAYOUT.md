@@ -78,9 +78,14 @@ Address       Size      Contents                 Lifetime
 
 0x0000:0x0610   496 B   (Unused gap)              Available for future use
 
-0x0000:0x0800  8192 B   LOADER.BIN → FS.BIN      Boot: LOADER runs here;
-               (8 KB     (LOADER: 2 sec used,     after kernel loads, FS.BIN
-                max)      FS.BIN: 2 sec used)      overwrites it (same addr)
+0x0000:0x0800  8192 B   LOADER.BIN (boot-time)    LOADER runs here during
+               (8 KB     (2 sectors = 1 KB used)   boot, then dead.  KERNEL
+                max)                                overwrites with FS.BIN ↓
+
+                         FS.BIN (runtime)          Permanent after kernel
+                         (2 sectors = 1 KB used,   init.  Installs INT 0x81
+                          7 KB growth room)         filesystem handler, caches
+                                                    MNFS directory (512 B)
 
 0x0000:0x2800  2048 B   (Unused gap)              Available for future use
 
