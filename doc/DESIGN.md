@@ -111,6 +111,10 @@ memory diagnostics, and version info.
 
 ### 2.2 Memory Layout
 
+> **📄 Deep dive**: See [MEMORY-LAYOUT.md](MEMORY-LAYOUT.md) for the exhaustive
+> memory map — every region's purpose, lifetime, stack analysis, reclaimable
+> memory, and the roadmap to protected-mode addressing.
+
 | Address | Contents |
 |---------|----------|
 | `0x0000:0x0000` – `0x0000:0x03FF` | Real-mode Interrupt Vector Table (IVT) |
@@ -159,6 +163,10 @@ time. The MBR code scans all 4 entries, prints their info, and chain-loads the V
 from the first entry marked active (`0x80`).
 
 ### 2.4 Volume Boot Record (VBR)
+
+> **📄 Design rationale**: See [BOOT-LAYOUT-RATIONALE.md](BOOT-LAYOUT-RATIONALE.md)
+> for why three stages, comparisons with DOS/Windows/Linux boot chains, the LBA
+> gap debate, and clobber protection analysis.
 
 The VBR (`src/boot/vbr.asm`) is a minimal loader at the start of the active
 partition. It has a self-describing header and loads LOADER.BIN from a fixed
@@ -213,6 +221,10 @@ SHELL Header:
 ```
 
 ### 2.7 Disk Layout
+
+> **📄 Design rationale**: See [BOOT-LAYOUT-RATIONALE.md](BOOT-LAYOUT-RATIONALE.md)
+> for how this layout compares to DOS, Windows, and Linux, and why fixed
+> partition offsets were chosen over the LBA gap or a filesystem.
 
 ```
 Sector 0                → MBR (code + partition table + 0xAA55)
@@ -589,7 +601,7 @@ This document will be updated as the project evolves. Planned milestones:
 | **M2** ✅ | Interactive shell (`mnos:\>`) with command dispatch, `sysinfo` as first command |
 | **M3** ✅ | A20 gate enablement (BIOS / 8042 / Fast A20 with fallbacks) |
 | **M4** ✅ | Three-stage boot chain (VBR → LOADER.BIN → SHELL.BIN), Boot Info Block |
-| **M5** | Switch to 32-bit protected mode |
+| **M5** | Switch to 32-bit protected mode (see [MEMORY-LAYOUT.md §8](MEMORY-LAYOUT.md#8-future-beyond-1-mb)) |
 | **M6** | Basic kernel with screen output (direct VGA framebuffer) |
 | **M7** | Simple memory manager |
 | **M8** | File system support (/boot partition) |
@@ -604,3 +616,5 @@ This document will be updated as the project evolves. Planned milestones:
 - [OSDev Wiki — MBR](https://wiki.osdev.org/MBR_(x86))
 - [INT 10h — BIOS Video Services](https://en.wikipedia.org/wiki/INT_10H)
 - [Hyper-V Generation 1 vs 2](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/plan/should-i-create-a-generation-1-or-2-virtual-machine-in-hyper-v)
+- [Boot Layout Design Rationale](BOOT-LAYOUT-RATIONALE.md) — why three stages, DOS/Windows/Linux comparisons, LBA gap analysis
+- [Memory Layout Design Document](MEMORY-LAYOUT.md) — exhaustive memory map, stack analysis, A20/protected mode roadmap

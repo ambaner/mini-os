@@ -74,7 +74,9 @@ mini-os/
 │       ├── build.yml         # CI — build & verify on push/PR
 │       └── release.yml       # CD — package & release on version tags
 ├── doc/
-│   └── DESIGN.md             # Architecture & design document
+│   ├── DESIGN.md             # Architecture & design document
+│   ├── BOOT-LAYOUT-RATIONALE.md  # Boot chain design rationale (DOS/Windows/Linux comparisons)
+│   └── MEMORY-LAYOUT.md      # Memory map, stack analysis, protected-mode roadmap
 ├── src/
 │   ├── boot/
 │   │   ├── mbr.asm           # MBR — partition table scan + VBR chain-load
@@ -111,6 +113,16 @@ mini-os/
 
 See **[doc/DESIGN.md](doc/DESIGN.md)** for the full architecture document — boot sequence,
 memory layout, VHD format, shell internals, disk layout, and project roadmap.
+
+Additional deep-dive documents:
+
+- **[doc/BOOT-LAYOUT-RATIONALE.md](doc/BOOT-LAYOUT-RATIONALE.md)** — Why the three-stage boot
+  chain? Comparisons with DOS 6.22, Windows NT/XP, and Linux/GRUB. Analysis of
+  LBA gap vs. partition-internal loading, and clobber protection strategies.
+
+- **[doc/MEMORY-LAYOUT.md](doc/MEMORY-LAYOUT.md)** — Exhaustive real-mode memory map showing
+  every region (IVT, BDA, BIB, LOADER, SHELL, stack). Stack sizing analysis,
+  transient vs. permanent memory, and the roadmap from A20 to protected mode.
 
 ## Version History
 
