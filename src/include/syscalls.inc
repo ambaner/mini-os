@@ -42,4 +42,16 @@ SYS_CHECK_CPUID   equ 0x19          ; Returns: AL=1 if supported
 SYS_GET_EDD       equ 0x1A          ; DL=drive; Returns: EDD info, CF=err
 SYS_GET_IVT       equ 0x1B          ; CL=vector#; Returns: AX=off, DX=seg
 
-SYSCALL_MAX       equ 0x1B          ; Highest valid syscall number
+; --- Debug syscalls (0x20–0x22) -----------------------------------------------
+; These are kernel-mediated debug output.  User-mode programs call these instead
+; of touching COM1 directly.  In release builds, the handlers are no-ops.
+;
+; All debug syscalls accept an optional caller tag:
+;   DS:BX = NUL-terminated tag string (e.g., "SHL", "FS")
+;           If BX=0, the kernel uses a default tag "USR".
+;
+SYS_DBG_PRINT     equ 0x20          ; DS:SI = message, DS:BX = tag (or 0)
+SYS_DBG_HEX16     equ 0x21          ; DX = value, DS:BX = tag (or 0)
+SYS_DBG_REGS      equ 0x22          ; Dump AX,BX,CX,DX,SI,DI; DS:BX = tag
+
+SYSCALL_MAX       equ 0x22          ; Highest valid syscall number

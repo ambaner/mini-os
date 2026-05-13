@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.7.1] — 2026-05-13
+
+### Added
+- **User-mode debug syscalls** — three new INT 0x80 functions (AH=0x20–0x22)
+  allow user-mode programs to emit debug output through the kernel's serial
+  port without direct COM1 access:
+  - `SYS_DBG_PRINT` (0x20) — print a tagged message: `[TAG] message`
+  - `SYS_DBG_HEX16` (0x21) — print a tagged hex value: `[TAG] NNNN`
+  - `SYS_DBG_REGS`  (0x22) — dump all registers with tag: `[TAG] AX=... DI=...`
+- **Caller-supplied tag** — DS:BX points to a NUL-terminated tag string
+  (e.g., `"SHL"`, `"FS"`).  If BX=0, defaults to `"USR"`.
+- **Shell debug tracing** — shell.asm now emits `[SHL]` tagged debug messages
+  at init, command dispatch (logs the typed command), and unknown-command path
+- All debug syscall handlers are **no-ops in release builds** (zero overhead)
+
+### Changed
+- `SYSCALL_MAX` raised from 0x1B to 0x22 (jump table extended with gap
+  entries 0x1C–0x1F pointing to `sc_unknown`)
+- Syscall name table extended with `DBG_PRINT`, `DBG_HEX16`, `DBG_REGS`
+  entries for serial trace output
+
+---
+
 ## [0.7.0] — 2026-05-17
 
 ### Added

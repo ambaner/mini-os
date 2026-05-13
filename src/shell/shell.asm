@@ -51,6 +51,12 @@ shell_init:
     mov ah, SYS_CLEAR_SCREEN
     int 0x80
 
+    ; Debug: shell starting
+    mov bx, dbg_tag
+    mov si, dbg_init
+    mov ah, SYS_DBG_PRINT
+    int 0x80
+
     ; Print banner via kernel syscall
     mov si, msg_banner
     mov ah, SYS_PRINT_STRING
@@ -65,6 +71,12 @@ shell_prompt:
 
     ; Read a line of user input into cmd_buf (up to 31 chars)
     call readline
+
+    ; Debug: log the command entered
+    mov bx, dbg_tag
+    mov si, cmd_buf
+    mov ah, SYS_DBG_PRINT
+    int 0x80
 
     ; --- Command dispatch ----------------------------------------------------
     ; Empty input (just pressed Enter) -> re-prompt
@@ -114,6 +126,10 @@ shell_prompt:
     je cmd_dir
 
     ; Unknown command — print error and re-prompt
+    mov bx, dbg_tag
+    mov si, dbg_unknown
+    mov ah, SYS_DBG_PRINT
+    int 0x80
     mov si, msg_unknown
     mov ah, SYS_PRINT_STRING
     int 0x80
@@ -1582,7 +1598,7 @@ rjust_dec16:
 
 ; --- Shell strings -----------------------------------------------------------
 msg_banner      db 13, 10
-                db '  MNOS v0.7.0', 13, 10
+                db '  MNOS v0.7.1', 13, 10
                 db 13, 10, 0
 
 msg_prompt      db 'mnos:\>', 0
@@ -1608,7 +1624,7 @@ str_reboot      db 'reboot', 0
 str_dir         db 'dir', 0
 
 ; --- ver command strings -----------------------------------------------------
-msg_ver_text    db '  MNOS v0.7.0', 13, 10
+msg_ver_text    db '  MNOS v0.7.1', 13, 10
                 db '  Arch:      x86 real mode (16-bit)', 13, 10
                 db '  Assembler: NASM', 13, 10
                 db '  Platform:  Hyper-V Gen 1', 13, 10
@@ -1787,6 +1803,11 @@ dir_buffer      times 512 db 0      ; Buffer for MNFS directory data
 
 ; IVT loop counter
 ivt_index       db 0
+
+; --- Debug syscall tag and messages -------------------------------------------
+dbg_tag         db 'SHL', 0
+dbg_init        db 'shell starting', 0
+dbg_unknown     db 'unknown command', 0
 
 ; =============================================================================
 ; PADDING — fill to sector boundary (12 sectors = 6144 bytes)

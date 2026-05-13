@@ -287,6 +287,9 @@ syscall_handler:
 .sn_19: db 'CHECK_CPUID', 0
 .sn_1a: db 'GET_EDD', 0
 .sn_1b: db 'GET_IVT', 0
+.sn_20: db 'DBG_PRINT', 0
+.sn_21: db 'DBG_HEX16', 0
+.sn_22: db 'DBG_REGS', 0
 
 ; Name pointer table (indexed by AH, 0x00–0x1B)
 .sc_name_table:
@@ -318,9 +321,16 @@ syscall_handler:
     dw .sn_19       ; 0x19
     dw .sn_1a       ; 0x1A
     dw .sn_1b       ; 0x1B
+    dw 0            ; 0x1C — reserved
+    dw 0            ; 0x1D — reserved
+    dw 0            ; 0x1E — reserved
+    dw 0            ; 0x1F — reserved
+    dw .sn_20       ; 0x20
+    dw .sn_21       ; 0x21
+    dw .sn_22       ; 0x22
 %endif
 
-; --- Syscall jump table (28 entries: 0x00 unused + 0x01–0x1B) ----------------
+; --- Syscall jump table (35 entries: 0x00–0x22, gap 0x1C–0x1F reserved) ------
 .sc_table:
     dw .sc_unknown          ; 0x00 — unused
     dw .fn_print_string     ; 0x01 — SYS_PRINT_STRING
@@ -350,6 +360,13 @@ syscall_handler:
     dw .fn_check_cpuid      ; 0x19 — SYS_CHECK_CPUID
     dw .fn_get_edd          ; 0x1A — SYS_GET_EDD
     dw .fn_get_ivt          ; 0x1B — SYS_GET_IVT
+    dw .sc_unknown          ; 0x1C — reserved
+    dw .sc_unknown          ; 0x1D — reserved
+    dw .sc_unknown          ; 0x1E — reserved
+    dw .sc_unknown          ; 0x1F — reserved
+    dw .fn_dbg_print        ; 0x20 — SYS_DBG_PRINT
+    dw .fn_dbg_hex16        ; 0x21 — SYS_DBG_HEX16
+    dw .fn_dbg_regs         ; 0x22 — SYS_DBG_REGS
 
 ; ─── SYS_PRINT_STRING (AH=0x01) ──────────────────────────────────────────────
 ; Input:  DS:SI = pointer to null-terminated string
@@ -430,7 +447,7 @@ syscall_handler:
 ; Output: AH = major version, AL = minor version
 ; ──────────────────────────────────────────────────────────────────────────────
 .fn_get_version:
-    mov ax, 0x0700                  ; Version 7.0 (v0.7.0)
+    mov ax, 0x0701                  ; Version 7.1 (v0.7.1)
     iret
 
 ; ─── SYS_CLEAR_SCREEN (AH=0x06) ──────────────────────────────────────────────
@@ -800,6 +817,147 @@ syscall_handler:
     pop bx
     pop ds
     iret
+
+; ─── SYS_DBG_PRINT (AH=0x20) ──────────────────────────────────────────────────
+; Input:  DS:SI = NUL-terminated message string
+;         DS:BX = NUL-terminated tag string (e.g., "SHL"); BX=0 → default "USR"
+; Output: none
+; Note:   No-op in release builds.  In debug builds, outputs:
+;         [TAG] message\r\n
+; ──────────────────────────────────────────────────────────────────────────────
+.fn_dbg_print:
+%ifdef DEBUG
+    push si
+    push ax
+    call .dbg_emit_tag              ; print "[TAG] "
+    pop ax
+    pop si
+    push si
+    push ax
+    call serial_puts                ; print the message
+    call serial_crlf
+    pop ax
+    pop si
+%endif
+    iret
+
+; ─── SYS_DBG_HEX16 (AH=0x21) ─────────────────────────────────────────────────
+; Input:  DX = 16-bit value to display
+;         DS:BX = NUL-terminated tag string; BX=0 → default "USR"
+; Output: none
+; Note:   No-op in release builds.  In debug builds, outputs:
+;         [TAG] 0xNNNN\r\n
+; ──────────────────────────────────────────────────────────────────────────────
+.fn_dbg_hex16:
+%ifdef DEBUG
+    push ax
+    push si
+    call .dbg_emit_tag              ; print "[TAG] "
+    mov ax, dx
+    call serial_hex16               ; print DX as hex
+    call serial_crlf
+    pop si
+    pop ax
+%endif
+    iret
+
+; ─── SYS_DBG_REGS (AH=0x22) ──────────────────────────────────────────────────
+; Input:  DS:BX = NUL-terminated tag string; BX=0 → default "USR"
+;         All other registers are the values to dump.
+; Output: none
+; Note:   No-op in release builds.  In debug builds, outputs:
+;         [TAG] AX=xxxx BX=xxxx CX=xxxx DX=xxxx SI=xxxx DI=xxxx\r\n
+;         AX will show AH=0x22 (the syscall number is part of AX).
+;         BX shows the original value (saved by dispatcher in .sc_temp).
+; ──────────────────────────────────────────────────────────────────────────────
+.fn_dbg_regs:
+%ifdef DEBUG
+    push ax
+    push si
+    ; Save values we want to print before we clobber them
+    mov [cs:.dbg_save_cx], cx
+    mov [cs:.dbg_save_dx], dx
+    mov [cs:.dbg_save_si], si
+    mov [cs:.dbg_save_di], di
+
+    call .dbg_emit_tag              ; print "[TAG] "
+
+    mov si, .dbg_lbl_ax
+    call serial_puts
+    pop si                          ; pop saved SI
+    pop ax                          ; pop saved AX (caller's AX with AH=0x22)
+    push ax
+    push si
+    call serial_hex16
+
+    mov si, .dbg_lbl_bx
+    call serial_puts
+    mov ax, [cs:.sc_temp]           ; original BX (saved by dispatcher)
+    call serial_hex16
+
+    mov si, .dbg_lbl_cx
+    call serial_puts
+    mov ax, [cs:.dbg_save_cx]
+    call serial_hex16
+
+    mov si, .dbg_lbl_dx
+    call serial_puts
+    mov ax, [cs:.dbg_save_dx]
+    call serial_hex16
+
+    mov si, .dbg_lbl_si
+    call serial_puts
+    mov ax, [cs:.dbg_save_si]
+    call serial_hex16
+
+    mov si, .dbg_lbl_di
+    call serial_puts
+    mov ax, [cs:.dbg_save_di]
+    call serial_hex16
+
+    call serial_crlf
+    pop si
+    pop ax
+%endif
+    iret
+
+%ifdef DEBUG
+; ─── .dbg_emit_tag — print "[TAG] " to serial ────────────────────────────────
+; Input:  DS:BX = tag string (NUL-terminated); BX=0 → use "USR"
+; Clobbers: SI (caller must save)
+; ──────────────────────────────────────────────────────────────────────────────
+.dbg_emit_tag:
+    push ax
+    mov al, '['
+    call serial_putc
+    test bx, bx
+    jz .dbg_default_tag
+    mov si, bx
+    call serial_puts
+    jmp .dbg_tag_close
+.dbg_default_tag:
+    mov si, .dbg_tag_usr
+    call serial_puts
+.dbg_tag_close:
+    mov al, ']'
+    call serial_putc
+    mov al, ' '
+    call serial_putc
+    pop ax
+    ret
+
+.dbg_tag_usr:  db 'USR', 0
+.dbg_lbl_ax:   db 'AX=', 0
+.dbg_lbl_bx:   db ' BX=', 0
+.dbg_lbl_cx:   db ' CX=', 0
+.dbg_lbl_dx:   db ' DX=', 0
+.dbg_lbl_si:   db ' SI=', 0
+.dbg_lbl_di:   db ' DI=', 0
+.dbg_save_cx:  dw 0
+.dbg_save_dx:  dw 0
+.dbg_save_si:  dw 0
+.dbg_save_di:  dw 0
+%endif
 
 ; =============================================================================
 ; Shared subroutines (from src/include/)

@@ -1,7 +1,7 @@
 # Debugging Infrastructure — Design Document
 
-**Version:** 1.1
-**Status:** Partially implemented in v0.7.0 (see status table below)
+**Version:** 1.2
+**Status:** Partially implemented — v0.7.0 (serial, tracing, build mode), v0.7.1 (user-mode debug syscalls)
 **Audience:** mini-os developers
 
 ---
@@ -38,6 +38,7 @@ document designs seven facilities for mini-os, ordered by impact.
 ├──────────────────────┼──────────────────────────────────────────┼───────────────┤
 │ § 3  Serial Debug Log│ COM1 (0x3F8) output for all debug msgs  │ ✅ v0.7.0     │
 │ § 4  Syscall Tracing │ Log every INT 0x80/0x81 with names      │ ✅ v0.7.0     │
+│ § 4b User-Mode Debug │ SYS_DBG_PRINT/HEX16/REGS with tags     │ ✅ v0.7.1     │
 │ § 5  Assert Macros   │ Compile-time condition checks           │ 📋 Future     │
 │ § 6  Fault Handlers  │ Trap CPU exceptions with state dump     │ 📋 Future     │
 │ § 7  Machine Monitor │ Wozmon-style memory examine/deposit/run │ 📋 Future     │
@@ -485,8 +486,8 @@ syscall_handler:
     ;   [SYS] PRINT_STRING AX=010C BX=0000
     ; Falls back to [SYS] AH=xx for unknown function numbers.
     ;
-    ; Name table: 28 dw pointers to NUL-terminated strings,
-    ; indexed by AH value (0x00–0x1B).
+    ; Name table: 35 dw pointers to NUL-terminated strings,
+    ; indexed by AH value (0x00–0x22).
 %endif
 
     movzx bx, ah                        ; BX = function number (existing)
@@ -495,7 +496,7 @@ syscall_handler:
     ; ... rest of dispatch ...
 ```
 
-The name table adds ~370 bytes in debug builds (27 name strings + 28-entry
+The name table adds ~440 bytes in debug builds (30 name strings + 35-entry
 pointer table) but makes output immediately readable without a reference card.
 
 ### 4.3 Trace Output — Boot Sequence Reference
@@ -556,6 +557,10 @@ Each line is explained:
 | 0x19 | `CHECK_CPUID` | Returns AL=1 if CPUID supported |
 | 0x1A | `GET_EDD` | EDD drive info (DL=drive) |
 | 0x1B | `GET_IVT` | Read IVT entry (CL=vector#) |
+| 0x1C–0x1F | *(reserved)* | — |
+| 0x20 | `DBG_PRINT` | Print tagged debug message (DS:SI=msg, DS:BX=tag) |
+| 0x21 | `DBG_HEX16` | Print tagged hex value (DX=value, DS:BX=tag) |
+| 0x22 | `DBG_REGS` | Dump all registers with tag (DS:BX=tag) |
 
 **INT 0x81 filesystem name reference (AH → name):**
 
@@ -628,6 +633,127 @@ Level 3 adds entry AND exit (with return values).
 | AH/LBA overlap | `[SYS] READ_SECTOR AX=0402` — expected `AX=0802` | Seconds |
 | CF propagation | No `[SYS] ERROR: CF set` after failed INT 13h | Minutes |
 | Print value clobber | `[SYS] PRINT_DEC16 AX=1202` — expected `AX=0002` | Seconds |
+
+### 4.7 User-Mode Debug Syscalls (v0.7.1)
+
+#### 4.7.1 The Problem
+
+Kernel and FS tracing (§4.2–4.4) instrument the kernel's *side* of every
+syscall, but they reveal nothing about the user-mode program's internal
+decisions.  If the shell takes the wrong branch in command dispatch, or
+passes the wrong value to a syscall, the kernel trace shows *what* was
+called but not *why*.
+
+Modern operating systems solve this by routing all debug output through
+the kernel:
+
+| OS | User-mode API | Kernel role |
+|----|---------------|-------------|
+| **Windows** | `OutputDebugString()` | Catches exception → debugger via shared memory |
+| **Linux** | `write(2, msg, len)` (stderr) | Kernel-managed file descriptor |
+| **macOS** | `os_log()` | Unified logging subsystem |
+
+The common pattern: **user mode never talks to hardware directly** — it
+asks the kernel to emit debug output.  This gives:
+
+- **Serialization** — no garbled output when multiple modules log
+- **Privilege separation** — only the kernel touches COM1
+- **Unified format** — kernel adds tags, timestamps, filtering
+
+#### 4.7.2 The Solution: Debug Syscalls (INT 0x80, AH=0x20–0x22)
+
+Three new syscalls provide kernel-mediated debug output for user-mode code.
+All three accept an optional **caller tag** via DS:BX — a short NUL-terminated
+string (e.g., `"SHL"`, `"FS"`) that identifies the source module.  If BX=0,
+the kernel defaults to `"USR"`.
+
+| AH | Name | Input | Serial Output |
+|----|------|-------|---------------|
+| 0x20 | `SYS_DBG_PRINT` | DS:SI = message string, DS:BX = tag | `[TAG] message` |
+| 0x21 | `SYS_DBG_HEX16` | DX = 16-bit value, DS:BX = tag | `[TAG] NNNN` |
+| 0x22 | `SYS_DBG_REGS`  | DS:BX = tag (all regs are dumped) | `[TAG] AX=xxxx BX=xxxx CX=xxxx DX=xxxx SI=xxxx DI=xxxx` |
+
+**Release builds:** All three handlers are no-ops (immediate `iret`).
+The syscall numbers are still valid — they just do nothing.
+
+**Example usage (shell.asm):**
+```nasm
+; At shell init:
+dbg_tag     db 'SHL', 0
+dbg_init    db 'shell starting', 0
+
+    mov bx, dbg_tag         ; DS:BX = "SHL"
+    mov si, dbg_init        ; DS:SI = "shell starting"
+    mov ah, SYS_DBG_PRINT
+    int 0x80                ; → [SHL] shell starting
+
+; After readline:
+    mov bx, dbg_tag
+    mov si, cmd_buf         ; DS:SI = whatever the user typed
+    mov ah, SYS_DBG_PRINT
+    int 0x80                ; → [SHL] help
+```
+
+#### 4.7.3 Kernel-Side Implementation
+
+The handlers live in kernel.asm as regular syscall entries.  The tag
+emission logic is shared via a `.dbg_emit_tag` subroutine:
+
+```nasm
+.dbg_emit_tag:           ; Print "[TAG] " to serial
+    mov al, '['          ;
+    call serial_putc     ; Uses BX=0 check to default to "USR"
+    test bx, bx          ;
+    jz .dbg_default_tag  ;
+    mov si, bx           ; User-supplied tag
+    call serial_puts     ;
+    ...                  ; Close with '] '
+    ret                  ;
+```
+
+The `SYS_DBG_REGS` handler saves CX, DX, SI, DI to kernel-local storage
+before clobbering them for serial output, then prints each value.  BX is
+recovered from `.sc_temp` (where the dispatcher saved it).
+
+#### 4.7.4 Architecture: Why Syscalls, Not Direct Port I/O
+
+An alternative design would include `serial.inc` in shell.asm and call
+`serial_puts` directly.  This was rejected for three reasons:
+
+1. **Privilege violation** — user-mode programs should not do port I/O.
+   Even in real mode (where there's no hardware protection), maintaining
+   the discipline prepares the codebase for protected mode.
+
+2. **Code duplication** — serial.inc emits ~160 bytes of functions.
+   Including it in every binary wastes space and creates multiple copies.
+
+3. **Serialization** — if both the kernel and shell write to COM1
+   simultaneously (e.g., a syscall trace fires while the shell is mid-
+   message), the output interleaves.  Routing through the kernel ensures
+   each message is atomic.
+
+#### 4.7.5 Expected Debug Output (v0.7.1 Boot Sequence)
+
+```
+[DBG] KERNEL: serial debug active       ← serial_init completed
+[DBG] KERNEL: INT 0x80 installed        ← syscall handler ready
+[SYS] READ_SECTOR AX=0400 BX=0983      ← kernel loading FS.BIN
+[DBG] KERNEL: FS.BIN loaded at 0x0800
+[DBG] KERNEL: INT 0x81 filesystem ready
+[DBG] KERNEL: SHELL.BIN loaded
+[SYS] CLEAR_SCREEN AX=060C BX=0000     ← shell clearing screen
+[SYS] DBG_PRINT AX=2000 BX=xxxx        ← shell calling SYS_DBG_PRINT
+[SHL] shell starting                    ← user-mode debug message!
+[SYS] PRINT_STRING AX=010C BX=xxxx     ← shell printing banner
+[SYS] PRINT_STRING AX=010C BX=xxxx     ← shell printing prompt
+[SYS] READ_KEY AX=030C BX=xxxx         ← waiting for input
+... user types "help" and presses Enter ...
+[SYS] DBG_PRINT AX=2000 BX=xxxx        ← shell logging command
+[SHL] help                              ← the command that was typed
+```
+
+The `[SHL]` lines are new in v0.7.1 — they show the shell's internal
+state alongside the kernel's syscall trace.
 
 ---
 
@@ -1899,6 +2025,8 @@ src/include/
 | 5 | FS tracing — named trace in `fs_syscall_handler` | ✅ Done (v0.7.0) |
 | 6 | Hyper-V COM1 setup — `setup-vm.ps1` + `read-serial.bat` | ✅ Done (v0.7.0) |
 | 7 | Separate VHDs — `mini-os.vhd` + `mini-os-debug.vhd` | ✅ Done (v0.7.0) |
+| 7b | User-mode debug syscalls — SYS_DBG_PRINT/HEX16/REGS with caller tags | ✅ Done (v0.7.1) |
+| 7c | Shell debug tracing — `[SHL]` tagged messages at init, dispatch, errors | ✅ Done (v0.7.1) |
 | 8 | Assert macros — ASSERT, ASSERT_MAGIC, ASSERT_CF_CLEAR | 📋 Future |
 | 9 | Fault handlers — INT 0 (div-by-zero), INT 6 (invalid opcode) | 📋 Future |
 | 10 | Stack canary — canary_init in kernel, canary_check in dispatcher | 📋 Future |
@@ -1939,7 +2067,7 @@ Open the VM console separately to see display output:
 vmconnect localhost mini-os
 ```
 
-### 11.3 Actual Debug Output (v0.7.0)
+### 11.3 Actual Debug Output (v0.7.1)
 
 ```
 [DBG] KERNEL: serial debug active       ← serial_init completed, COM1 ready
@@ -1949,16 +2077,18 @@ vmconnect localhost mini-os
 [DBG] KERNEL: INT 0x81 filesystem ready ← FS INT 0x81 handler installed
 [DBG] KERNEL: SHELL.BIN loaded          ← shell binary loaded at 0x3000
 [SYS] CLEAR_SCREEN AX=060C BX=0000     ← shell clearing screen
-[SYS] PRINT_STRING AX=010C BX=0000     ← shell printing banner
-[SYS] PRINT_STRING AX=010C BX=0000     ← shell printing prompt
-[SYS] READ_KEY AX=030C BX=0000         ← shell waiting for keypress
+[SYS] DBG_PRINT AX=2000 BX=xxxx        ← shell calling debug print syscall
+[SHL] shell starting                    ← user-mode debug message
+[SYS] PRINT_STRING AX=010C BX=xxxx     ← shell printing banner
+[SYS] PRINT_STRING AX=010C BX=xxxx     ← shell printing prompt
+[SYS] READ_KEY AX=030C BX=xxxx         ← shell waiting for keypress
 ```
 
 ---
 
 ## 12. Future Extensions
 
-These are not planned for v0.7.0 but would be natural additions later:
+These are not yet implemented but would be natural additions later:
 
 | Feature | Description |
 |---------|-------------|

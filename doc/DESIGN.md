@@ -682,9 +682,10 @@ This document will be updated as the project evolves. Planned milestones:
 | **M4** ✅ | Three-stage boot chain (VBR → LOADER.BIN → SHELL.BIN), Boot Info Block |
 | **M5** ✅ | 16-bit kernel + INT 0x80 syscall interface, shell as user-mode executable |
 | **M6** ✅ | MNFS flat filesystem, FS.BIN module with INT 0x81 API, dir command, no hardcoded offsets |
-| **M7** | Switch to 32-bit protected mode (see [MEMORY-LAYOUT.md §8](MEMORY-LAYOUT.md#8-future-beyond-1-mb)) |
-| **M8** | Basic kernel with screen output (direct VGA framebuffer) |
-| **M9** | Simple memory manager (design pending) |
+| **M7** ✅ | Serial debugging (COM1, debug macros, syscall tracing, debug builds), user-mode debug syscalls |
+| **M8** | Switch to 32-bit protected mode (see [MEMORY-LAYOUT.md §8](MEMORY-LAYOUT.md#8-future-beyond-1-mb)) |
+| **M9** | Basic kernel with screen output (direct VGA framebuffer) |
+| **M10** | Simple memory manager (design pending) |
 
 ---
 

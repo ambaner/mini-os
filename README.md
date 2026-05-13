@@ -1,6 +1,6 @@
 # mini-os
 
-A minimalistic operating system, built from scratch — currently at **v0.7.0**.
+A minimalistic operating system, built from scratch — currently at **v0.7.1**.
 MBR reads the partition table, chain-loads a VBR which loads a stage-2 loader
 (A20 gate enablement), which loads a 16-bit kernel (KERNEL.BIN) that provides
 an INT 0x80 syscall interface, which loads the filesystem module (FS.BIN) with
@@ -69,7 +69,7 @@ The script will prompt for a VM name and location (defaults are fine), then crea
 You should see the MBR banner and partition table info, then the shell:
 
 ```
-  MNOS v0.7.0
+  MNOS v0.7.1
 
 mnos:\>
 ```
@@ -190,6 +190,7 @@ Additional deep-dive documents:
   mini-os syscall table.
 
 - **[doc/DEBUGGING.md](doc/DEBUGGING.md)** — Serial logging (COM1), syscall tracing,
+  user-mode debug syscalls (SYS_DBG_PRINT/HEX16/REGS with caller tags),
   debug build mode, and planned facilities (mnmon, assertions).
   Covers Hyper-V COM port setup and build integration.
 
@@ -210,6 +211,7 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.4.0` | **Three-stage boot chain** | VBR → LOADER.BIN → SHELL.BIN split; A20 in loader, shell as separate binary, BIB at 0x0600 |
 | `v0.5.0` | **16-bit Kernel + Syscalls** | KERNEL.BIN with INT 0x80 syscall interface; shell refactored to user-mode MNEX executable |
 | `v0.6.0` | **MNFS Filesystem** | Flat filesystem, FS.BIN module with INT 0x81 API, `dir` command, no hardcoded disk offsets |
+| `v0.7.1` | **User-Mode Debug Syscalls** | SYS_DBG_PRINT/HEX16/REGS (0x20–0x22) with caller tags, shell tracing |
 | `v0.7.0` | **Serial Debugging** | COM1 serial logging, debug macros, syscall/FS tracing, debug build mode (`build.bat /debug`) |
 
 ```cmd

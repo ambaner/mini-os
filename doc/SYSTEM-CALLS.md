@@ -1043,6 +1043,16 @@ convention and mechanism change, but the **function numbers stay the same**:
 | 7 | `SYS_ALLOC` | Allocate memory block | N/A (no allocator) | Kernel heap |
 | 8 | `SYS_FREE` | Free memory block | N/A | Kernel heap |
 
+**Debug syscalls (0x20–0x22):** Implemented in v0.7.1.  These are kernel-
+mediated debug output functions — user-mode code calls them instead of
+touching COM1 directly.  The caller passes a tag string (DS:BX) to identify
+the source module (e.g., `"SHL"` for the shell).  All are no-ops in release
+builds.  See `syscalls.inc` and `doc/DEBUGGING.md` §4.7 for details.
+
+| 0x20 | `SYS_DBG_PRINT` | Print tagged debug message | Serial (COM1) | Serial / syslog |
+| 0x21 | `SYS_DBG_HEX16` | Print tagged hex value | Serial (COM1) | Serial / syslog |
+| 0x22 | `SYS_DBG_REGS`  | Dump registers with tag | Serial (COM1) | Serial / syslog |
+
 ### 7.3 Stability Guarantee
 
 Following the Linux model (not Windows), **syscall numbers are a stable ABI**.
