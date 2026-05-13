@@ -1582,7 +1582,7 @@ rjust_dec16:
 
 ; --- Shell strings -----------------------------------------------------------
 msg_banner      db 13, 10
-                db '  MNOS v0.6.0', 13, 10
+                db '  MNOS v0.7.0', 13, 10
                 db 13, 10, 0
 
 msg_prompt      db 'mnos:\>', 0
@@ -1608,7 +1608,7 @@ str_reboot      db 'reboot', 0
 str_dir         db 'dir', 0
 
 ; --- ver command strings -----------------------------------------------------
-msg_ver_text    db '  MNOS v0.6.0', 13, 10
+msg_ver_text    db '  MNOS v0.7.0', 13, 10
                 db '  Arch:      x86 real mode (16-bit)', 13, 10
                 db '  Assembler: NASM', 13, 10
                 db '  Platform:  Hyper-V Gen 1', 13, 10

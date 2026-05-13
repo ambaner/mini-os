@@ -52,7 +52,7 @@ or data in real mode — they are memory-mapped hardware regions.
 
 ---
 
-## 2. mini-os Memory Map (v0.6.0)
+## 2. mini-os Memory Map (v0.7.0)
 
 mini-os uses the lower portion of conventional memory (0x0500–0x7FFF).  The
 layout was designed around four constraints:
@@ -543,7 +543,7 @@ prevents a larger loader from colliding with the shell.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│            mini-os v0.6.0 Memory Quick Reference        │
+│            mini-os v0.7.0 Memory Quick Reference        │
 ├──────────┬──────────┬──────────────────────┬────────────┤
 │ Start    │ End      │ Contents             │ Size       │
 ├──────────┼──────────┼──────────────────────┼────────────┤
@@ -574,5 +574,29 @@ prevents a larger loader from colliding with the shell.
 
 ---
 
+## 11. Debug vs. Release Build Sizes
+
+Debug builds (`build.bat /debug`) include serial logging functions, syscall
+tracing, and DBG macros via `%ifdef DEBUG`.  This increases some binaries,
+but **the runtime memory map is identical** — every component loads at its
+hardcoded address.  Debug code simply occupies more bytes within each
+pre-allocated region.
+
+| Component | Address | Release | Debug | Growth room left |
+|-----------|---------|---------|-------|-----------------|
+| FS.BIN | 0x0800 | 1 KB (2 sec) | 1.5 KB (3 sec) | 6.5 KB |
+| SHELL.BIN | 0x3000 | 6 KB (12 sec) | 6 KB (12 sec) | 2 KB |
+| KERNEL.BIN | 0x5000 | 3 KB (6 sec) | 3.5 KB (7 sec) | 4.5 KB |
+
+Each binary's header contains a conditional sector count (`%ifdef DEBUG`),
+so the loader reads the correct size at runtime.  No code changes are needed
+to accommodate the larger debug binaries — the existing load logic handles it.
+
+The **disk layout** does differ (files pack at different sector offsets),
+but this is transparent because the MNFS directory is self-describing.
+See DEBUGGING.md §8.5 for the full disk layout comparison.
+
+---
+
 *Document created: 2026-05-12*
-*Relates to: DESIGN.md §2.2 (Memory Layout), BOOT-LAYOUT-RATIONALE.md*
+*Relates to: DESIGN.md §2.2 (Memory Layout), BOOT-LAYOUT-RATIONALE.md, DEBUGGING.md §8*

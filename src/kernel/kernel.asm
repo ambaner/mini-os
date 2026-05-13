@@ -35,6 +35,7 @@
 %include "memory.inc"
 %include "mnfs.inc"
 %include "syscalls.inc"
+%include "debug.inc"
 
 [BITS 16]
 [ORG 0x5000]                        ; Loader loads us here
@@ -43,17 +44,27 @@
 ; KERNEL HEADER
 ; =============================================================================
 kernel_magic    db 'MNKN'           ; Magic identifier — kernel
-kernel_sectors  dw 6                ; Kernel size in sectors (updated as needed)
+%ifdef DEBUG
+kernel_sectors  dw 7                ; Kernel size in sectors (debug build)
+%else
+kernel_sectors  dw 6                ; Kernel size in sectors (release build)
+%endif
 
 ; =============================================================================
 ; KERNEL ENTRY POINT
 ; =============================================================================
 kernel_start:
+%ifdef DEBUG
+    call serial_init
+    DBG "KERNEL: serial debug active"
+%endif
+
     ; --- Install syscall handler at INT 0x80 ----------------------------------
     call install_syscalls
 
     mov si, msg_syscall
     call boot_ok
+    DBG "KERNEL: INT 0x80 installed"
 
     ; --- Load FS.BIN (filesystem module) at 0x0800 ---------------------------
     ; FS.BIN replaces LOADER.BIN in memory (LOADER's job is done).
@@ -72,6 +83,7 @@ kernel_start:
 
     mov si, msg_fs
     call boot_ok
+    DBG "KERNEL: FS.BIN loaded at 0x0800"
 
     ; --- Initialize FS.BIN (installs INT 0x81) --------------------------------
     ; FS.BIN's init entry point is at offset 6 (right after the 6-byte header).
@@ -80,6 +92,7 @@ kernel_start:
 
     mov si, msg_fs_init
     call boot_ok
+    DBG "KERNEL: INT 0x81 filesystem ready"
 
     ; --- Load SHELL.BIN at 0x3000 --------------------------------------------
     ; Use 0x2000 as scratch buffer for directory read (safe — between LOADER
@@ -98,6 +111,7 @@ kernel_start:
 
     mov si, msg_shell
     call boot_ok
+    DBG "KERNEL: SHELL.BIN loaded, jumping to shell"
 
     ; --- Transfer control to shell --------------------------------------------
     ; The shell is a user-mode executable.  When it calls INT 0x80, the CPU
@@ -178,6 +192,49 @@ install_syscalls:
 syscall_handler:
     mov [cs:.sc_temp], bx           ; Save BX in kernel data area
 
+%ifdef DEBUG
+    ; --- Syscall trace: log function name + AX + original BX to serial ---
+    push si
+    push ax
+
+    ; Look up syscall name from table
+    mov si, .sc_trace_pfx           ; "[SYS] "
+    call serial_puts
+
+    movzx bx, ah
+    cmp bx, SYSCALL_MAX
+    ja .sc_trace_noname
+    shl bx, 1                       ; word offset into name pointer table
+    mov si, [cs:.sc_name_table + bx]
+    test si, si
+    jz .sc_trace_noname
+    call serial_puts
+    jmp .sc_trace_ax_part
+
+.sc_trace_noname:
+    mov si, .sc_trace_ah            ; "AH="
+    call serial_puts
+    mov al, ah
+    call serial_hex8
+
+.sc_trace_ax_part:
+    mov si, .sc_trace_ax            ; " AX="
+    call serial_puts
+    pop ax                          ; restore AX for printing
+    push ax                         ; re-save
+    call serial_hex16
+
+    mov si, .sc_trace_bx            ; " BX="
+    call serial_puts
+    mov ax, [cs:.sc_temp]           ; original BX
+    call serial_hex16
+
+    call serial_crlf
+    pop ax
+    mov bx, [cs:.sc_temp]           ; restore BX (was clobbered by name lookup)
+    pop si
+%endif
+
     movzx bx, ah                    ; BX = function number (zero-extended)
     cmp bx, SYSCALL_MAX
     ja .sc_unknown
@@ -195,6 +252,73 @@ syscall_handler:
 ; Temporary storage for syscall dispatch (single-threaded real mode,
 ; so no reentrancy concerns — interrupts are masked during INT handlers).
 .sc_temp: dw 0
+
+%ifdef DEBUG
+.sc_trace_pfx: db '[SYS] ', 0
+.sc_trace_ah:  db 'AH=', 0
+.sc_trace_ax:  db ' AX=', 0
+.sc_trace_bx:  db ' BX=', 0
+
+; Syscall name strings (short, human-readable)
+.sn_01: db 'PRINT_STRING', 0
+.sn_02: db 'PRINT_CHAR', 0
+.sn_03: db 'READ_KEY', 0
+.sn_04: db 'READ_SECTOR', 0
+.sn_05: db 'GET_VERSION', 0
+.sn_06: db 'CLEAR_SCREEN', 0
+.sn_07: db 'SET_CURSOR', 0
+.sn_08: db 'GET_CURSOR', 0
+.sn_09: db 'CHECK_A20', 0
+.sn_0a: db 'GET_CONV_MEM', 0
+.sn_0b: db 'GET_EXT_MEM', 0
+.sn_0c: db 'GET_E820', 0
+.sn_0d: db 'REBOOT', 0
+.sn_0e: db 'GET_DRIVE_INFO', 0
+.sn_0f: db 'GET_BIB', 0
+.sn_10: db 'PRINT_HEX8', 0
+.sn_11: db 'PRINT_HEX16', 0
+.sn_12: db 'PRINT_DEC16', 0
+.sn_13: db 'WAIT_KEY', 0
+.sn_14: db 'GET_EQUIP', 0
+.sn_15: db 'GET_VIDEO', 0
+.sn_16: db 'GET_BDA_BYTE', 0
+.sn_17: db 'GET_BDA_WORD', 0
+.sn_18: db 'CPUID', 0
+.sn_19: db 'CHECK_CPUID', 0
+.sn_1a: db 'GET_EDD', 0
+.sn_1b: db 'GET_IVT', 0
+
+; Name pointer table (indexed by AH, 0x00–0x1B)
+.sc_name_table:
+    dw 0            ; 0x00 — unused
+    dw .sn_01       ; 0x01
+    dw .sn_02       ; 0x02
+    dw .sn_03       ; 0x03
+    dw .sn_04       ; 0x04
+    dw .sn_05       ; 0x05
+    dw .sn_06       ; 0x06
+    dw .sn_07       ; 0x07
+    dw .sn_08       ; 0x08
+    dw .sn_09       ; 0x09
+    dw .sn_0a       ; 0x0A
+    dw .sn_0b       ; 0x0B
+    dw .sn_0c       ; 0x0C
+    dw .sn_0d       ; 0x0D
+    dw .sn_0e       ; 0x0E
+    dw .sn_0f       ; 0x0F
+    dw .sn_10       ; 0x10
+    dw .sn_11       ; 0x11
+    dw .sn_12       ; 0x12
+    dw .sn_13       ; 0x13
+    dw .sn_14       ; 0x14
+    dw .sn_15       ; 0x15
+    dw .sn_16       ; 0x16
+    dw .sn_17       ; 0x17
+    dw .sn_18       ; 0x18
+    dw .sn_19       ; 0x19
+    dw .sn_1a       ; 0x1A
+    dw .sn_1b       ; 0x1B
+%endif
 
 ; --- Syscall jump table (28 entries: 0x00 unused + 0x01–0x1B) ----------------
 .sc_table:
@@ -306,7 +430,7 @@ syscall_handler:
 ; Output: AH = major version, AL = minor version
 ; ──────────────────────────────────────────────────────────────────────────────
 .fn_get_version:
-    mov ax, 0x0600                  ; Version 6.0 (v0.6.0)
+    mov ax, 0x0700                  ; Version 7.0 (v0.7.0)
     iret
 
 ; ─── SYS_CLEAR_SCREEN (AH=0x06) ──────────────────────────────────────────────
@@ -730,6 +854,16 @@ dap_lba:
     dd 0, 0
 
 ; =============================================================================
-; PADDING — fill to 6 sectors (3072 bytes)
+; Serial I/O functions (debug build only — placed after kernel code to avoid
+; polluting the header at offset 0)
 ; =============================================================================
+%include "serial.inc"
+
+; =============================================================================
+; PADDING — fill to sector boundary
+; =============================================================================
+%ifdef DEBUG
+times (7 * 512) - ($ - $$) db 0
+%else
 times (6 * 512) - ($ - $$) db 0
+%endif

@@ -1,6 +1,6 @@
 # mini-os
 
-A minimalistic operating system, built from scratch — currently at **v0.6.0**.
+A minimalistic operating system, built from scratch — currently at **v0.7.0**.
 MBR reads the partition table, chain-loads a VBR which loads a stage-2 loader
 (A20 gate enablement), which loads a 16-bit kernel (KERNEL.BIN) that provides
 an INT 0x80 syscall interface, which loads the filesystem module (FS.BIN) with
@@ -30,6 +30,29 @@ The build script will:
 2. Assemble MBR, VBR, LOADER, FS, KERNEL, and SHELL binaries
 3. Create `build/boot/mini-os.vhd` (16 MB fixed VHD with partition table)
 
+### Debug build
+
+```cmd
+build.bat /debug
+```
+
+Adds serial logging, syscall tracing, and boot milestone messages via COM1
+(115200 baud, 8N1). Release builds contain zero debug bytes.
+See `doc/DEBUGGING.md` §3–4 for details.
+
+To read serial output from a debug build (requires admin — manages VM lifecycle):
+
+```cmd
+:: Build debug, setup VM, then capture serial from boot:
+build.bat /debug
+setup-vm.bat
+read-serial.bat
+```
+
+`read-serial.bat` stops the VM, restarts it, and immediately connects to the
+COM1 pipe — capturing boot messages from the first byte. On VM reboot or
+reset, it auto-reconnects. Press Ctrl+C to stop.
+
 ## Running in Hyper-V
 
 ```cmd
@@ -41,12 +64,12 @@ build.bat
 setup-vm.bat
 ```
 
-The script will prompt for a VM name and location (defaults are fine), then create a Gen 1 / 32 MB RAM VM with no network adapter. On repeat runs it stops the VM, swaps in the latest VHD, and leaves it ready to start.
+The script will prompt for a VM name and location (defaults are fine), then create a Gen 1 / 32 MB RAM VM with no network adapter and COM1 mapped to `\\.\pipe\minios-serial` for serial debug output. When both release and debug VHDs exist, it prompts which one to attach. On repeat runs it stops the VM, swaps in the chosen VHD, and leaves it ready to start.
 
 You should see the MBR banner and partition table info, then the shell:
 
 ```
-  MNOS v0.6.0
+  MNOS v0.7.0
 
 mnos:\>
 ```
@@ -91,7 +114,9 @@ mini-os/
 │   │   ├── mnfs.inc           # MNFS filesystem constants & INT 0x81 numbers
 │   │   ├── find_file.inc      # Bootstrap MNFS directory lookup subroutine
 │   │   ├── syscalls.inc       # INT 0x80 syscall function numbers
-│   │   └── load_binary.inc    # Shared MNEX binary loader subroutine
+│   │   ├── load_binary.inc    # Shared MNEX binary loader subroutine
+│   │   ├── serial.inc         # COM1 serial I/O (debug build only)
+│   │   └── debug.inc          # DBG/DBG_REG/DBG_REGS macros (debug build only)
 │   ├── boot/
 │   │   ├── mbr.asm           # MBR — partition table scan + VBR chain-load
 │   │   └── vbr.asm           # VBR — finds LOADER.BIN via MNFS directory
@@ -109,6 +134,7 @@ mini-os/
 │   ├── create-vhd.bat        # VHD tool — batch wrapper
 │   ├── create-vhd.ps1        # Raw image → VHD converter (pure PowerShell)
 │   ├── setup-vm.ps1          # Hyper-V VM create/update logic
+│   ├── read-serial.ps1       # Read COM1 debug output from running VM
 │   └── nasm/                 # Auto-downloaded NASM (gitignored)
 ├── build/                    # Build output (gitignored)
 │   └── boot/
@@ -121,6 +147,7 @@ mini-os/
 │       ├── mini-os.img
 │       └── mini-os.vhd
 ├── build.bat                 # Build entry point
+├── read-serial.bat           # Read serial debug output from VM
 ├── setup-vm.bat              # Hyper-V VM setup entry point
 ├── CHANGELOG.md
 ├── CODE_OF_CONDUCT.md
@@ -162,6 +189,10 @@ Additional deep-dive documents:
   (64-bit). Includes complete handler code, Windows/Linux comparisons, and the
   mini-os syscall table.
 
+- **[doc/DEBUGGING.md](doc/DEBUGGING.md)** — Serial logging (COM1), syscall tracing,
+  debug build mode, and planned facilities (mnmon, assertions).
+  Covers Hyper-V COM port setup and build integration.
+
 ## Version History
 
 Each version is a tagged release you can checkout to see the project at that stage.
@@ -179,6 +210,7 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.4.0` | **Three-stage boot chain** | VBR → LOADER.BIN → SHELL.BIN split; A20 in loader, shell as separate binary, BIB at 0x0600 |
 | `v0.5.0` | **16-bit Kernel + Syscalls** | KERNEL.BIN with INT 0x80 syscall interface; shell refactored to user-mode MNEX executable |
 | `v0.6.0` | **MNFS Filesystem** | Flat filesystem, FS.BIN module with INT 0x81 API, `dir` command, no hardcoded disk offsets |
+| `v0.7.0` | **Serial Debugging** | COM1 serial logging, debug macros, syscall/FS tracing, debug build mode (`build.bat /debug`) |
 
 ```cmd
 git checkout v0.1.0      # see the project at any prior milestone

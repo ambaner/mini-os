@@ -16,6 +16,10 @@
 .PARAMETER Clean
     Remove the build/ directory before building.
 
+.PARAMETER DebugBuild
+    Enable debug build — passes -dDEBUG to NASM, enabling serial logging,
+    syscall tracing, and all DBG macros.  See doc/DEBUGGING.md.
+
 .PARAMETER DiskSizeMB
     VHD disk size in megabytes (default: 16).
 #>
@@ -23,6 +27,7 @@
 [CmdletBinding()]
 param(
     [switch]$Clean,
+    [switch]$DebugBuild,
     [int]$DiskSizeMB = 16
 )
 
@@ -48,8 +53,9 @@ $KernelBin  = Join-Path $BuildDir 'kernel.bin'
 $FsBin      = Join-Path $BuildDir 'fs.bin'
 $ShellBin   = Join-Path $BuildDir 'shell.bin'
 $IncludeDir = Join-Path $Root 'src\include'
-$RawImg     = Join-Path $BuildDir 'mini-os.img'
-$VhdOut     = Join-Path $BuildDir 'mini-os.vhd'
+$VhdSuffix  = if ($DebugBuild) { '-debug' } else { '' }
+$RawImg     = Join-Path $BuildDir "mini-os${VhdSuffix}.img"
+$VhdOut     = Join-Path $BuildDir "mini-os${VhdSuffix}.vhd"
 
 # ---------- helpers ---------------------------------------------------------
 function Write-Step([string]$msg) { Write-Host "[mini-os] $msg" -ForegroundColor Cyan }
@@ -61,8 +67,13 @@ function Build-Binary {
         [string]$BinPath,
         [int]$ExpectedSize = 0    # 0 = no specific size check
     )
-    Write-Step "Assembling ${Name}..."
-    & $nasm -f bin -I "$IncludeDir/" -o $BinPath $AsmPath
+    $label = if ($DebugBuild) { "Assembling ${Name} (DEBUG)..." } else { "Assembling ${Name}..." }
+    Write-Step $label
+
+    $flags = @('-f', 'bin', '-I', "$IncludeDir/", '-o', $BinPath)
+    if ($DebugBuild) { $flags = @('-dDEBUG') + $flags }
+    $flags += $AsmPath
+    & $nasm @flags
     if ($LASTEXITCODE -ne 0) { throw "NASM assembly of $Name failed." }
 
     $size = (Get-Item $BinPath).Length

@@ -40,7 +40,7 @@ magic number.  **All types use the same 32-byte MNEX header** (§3):
 |-------|------|-------------|
 | `MNOS` | VBR | Volume Boot Record (partition boot sector) |
 | `MNLD` | Loader | Stage-2 loader (A20, mode switch, binary loading) |
-| `MNKN` | Kernel | OS kernel (interrupt handling, drivers, memory manager) |
+| `MNKN` | Kernel | OS kernel (interrupt handling, syscalls, drivers) |
 | `MNEX` | Executable | User-mode executable (loaded and run by the kernel) |
 
 Every magic is valid at **every `cpu_mode`** (0, 1, or 2).  The magic

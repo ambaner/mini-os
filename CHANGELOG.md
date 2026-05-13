@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.7.0] — 2026-05-17
+
+### Added
+- **Serial debug logging** — COM1 output at 115200 baud, 8N1 via pure port I/O
+  (`src/include/serial.inc`): `serial_init`, `serial_putc`, `serial_puts`,
+  `serial_hex8`, `serial_hex16`, `serial_crlf`
+- **Debug macros** (`src/include/debug.inc`): `DBG "msg"`, `DBG_REG "name", reg`,
+  `DBG_REGS` — inline string + call pattern, zero bytes in release builds
+- **Syscall tracing** — kernel INT 0x80 handler logs `[SYS] AH=xx AX=xxxx BX=xxxx`
+  to serial for every syscall invocation (debug build only)
+- **Filesystem tracing** — FS.BIN INT 0x81 handler logs `[FS] AH=xx` to serial
+  for every filesystem syscall (debug build only)
+- **Debug build mode** — `build.bat /debug` or `pwsh tools/build.ps1 -DebugBuild`
+  passes `-dDEBUG` to NASM; all debug code compiles to zero bytes in release
+- **Separate debug/release VHDs** — release builds produce `mini-os.vhd`, debug
+  builds produce `mini-os-debug.vhd`; both can coexist in `build/boot/`
+- **Boot milestone logging** — kernel prints serial messages at each init stage:
+  serial init, INT 0x80 installed, FS.BIN loaded, INT 0x81 ready, SHELL.BIN loaded
+- **Serial reader script** — `read-serial.bat` / `tools/read-serial.ps1` connects
+  to the Hyper-V COM1 named pipe and streams debug output to the console
+
+### Changed
+- Build scripts (`tools/build.ps1`, `build.bat`) updated for `-DebugBuild` switch
+- `setup-vm.ps1` now auto-configures COM1 as named pipe (`\\.\pipe\minios-serial`)
+  on both new and existing VMs; prompts for VHD variant (release/debug) when both
+  VHDs are present
+- Kernel sector count: conditional 6 (release) / 7 (debug) via `%ifdef DEBUG`
+- FS.BIN sector count: conditional 2 (release) / 3 (debug) via `%ifdef DEBUG`
+- `serial.inc` placed at end of kernel.asm and fs.asm (after all code/data)
+  to avoid polluting binary headers at offset 0
+- Shell monitor command renamed from `mon` to `mnmon` in DEBUGGING.md
+  (follows `mn` prefix convention: mnos, mnfs, mnex, mnmon)
+
+---
+
 ## [0.6.0] — 2026-05-12
 
 ### Added

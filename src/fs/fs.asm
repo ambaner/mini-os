@@ -31,6 +31,7 @@
 %include "bib.inc"
 %include "mnfs.inc"
 %include "syscalls.inc"
+%include "debug.inc"
 
 [BITS 16]
 [ORG 0x0800]                        ; Loaded at LOADER's old address
@@ -39,7 +40,11 @@
 ; FS.BIN HEADER
 ; =============================================================================
 fs_magic        db 'MNFS'           ; Magic identifier — filesystem module
-fs_sectors      dw 2                ; Module size in sectors (updated as needed)
+%ifdef DEBUG
+fs_sectors      dw 3                ; Module size in sectors (debug build)
+%else
+fs_sectors      dw 2                ; Module size in sectors (release build)
+%endif
 
 ; =============================================================================
 ; fs_init — Initialize the filesystem module
@@ -108,6 +113,37 @@ fs_init:
 ; needed except FS_READ_FILE which reads file contents).
 ; =============================================================================
 fs_syscall_handler:
+%ifdef DEBUG
+    push si
+    push ax
+    push bx
+
+    mov si, .fs_trace_pfx           ; "[FS] "
+    call serial_puts
+
+    movzx bx, ah
+    cmp bx, 4
+    ja .fs_trace_noname
+    shl bx, 1
+    mov si, [cs:.fs_name_table + bx]
+    test si, si
+    jz .fs_trace_noname
+    call serial_puts
+    jmp .fs_trace_done
+
+.fs_trace_noname:
+    mov si, .fs_trace_ah            ; "AH="
+    call serial_puts
+    mov al, ah
+    call serial_hex8
+
+.fs_trace_done:
+    call serial_crlf
+    pop bx
+    pop ax
+    pop si
+%endif
+
     cmp ah, FS_LIST_FILES
     je .fn_list_files
     cmp ah, FS_FIND_FILE
@@ -120,6 +156,21 @@ fs_syscall_handler:
     ; Unknown function
     stc
     iret
+
+%ifdef DEBUG
+.fs_trace_pfx: db '[FS] ', 0
+.fs_trace_ah:  db 'AH=', 0
+.fsn_01: db 'LIST_FILES', 0
+.fsn_02: db 'FIND_FILE', 0
+.fsn_03: db 'READ_FILE', 0
+.fsn_04: db 'GET_INFO', 0
+.fs_name_table:
+    dw 0            ; 0x00 — unused
+    dw .fsn_01      ; 0x01
+    dw .fsn_02      ; 0x02
+    dw .fsn_03      ; 0x03
+    dw .fsn_04      ; 0x04
+%endif
 
 ; ─── FS_LIST_FILES (AH=0x01) ─────────────────────────────────────────────────
 ; Copy the cached 512-byte directory sector to the caller's buffer.
@@ -359,6 +410,16 @@ dir_cache:
     times 512 db 0
 
 ; =============================================================================
-; PADDING — fill to 2 sectors (1024 bytes)
+; Serial I/O functions (debug build only — placed after FS code to avoid
+; polluting the header at offset 0)
 ; =============================================================================
+%include "serial.inc"
+
+; =============================================================================
+; PADDING — fill to sector boundary
+; =============================================================================
+%ifdef DEBUG
+times (3 * 512) - ($ - $$) db 0
+%else
 times (2 * 512) - ($ - $$) db 0
+%endif

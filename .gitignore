@@ -12,3 +12,6 @@ Thumbs.db
 
 # Copilot session context
 .copilot-context.md
+
+# Unpublished design docs
+doc/MEMORY-MANAGER.md

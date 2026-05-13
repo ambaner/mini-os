@@ -47,9 +47,18 @@ $Root      = Split-Path -Parent $ScriptDir
 $SourceVhd = Join-Path $Root 'build\boot\mini-os.vhd'
 
 if (-not (Test-Path $SourceVhd)) {
-    Write-Host "ERROR: $SourceVhd not found. Run .\build.ps1 first." -ForegroundColor Red
-    exit 1
+    # Try debug VHD
+    $DebugVhdEarly = Join-Path $Root 'build\boot\mini-os-debug.vhd'
+    if (Test-Path $DebugVhdEarly) {
+        $SourceVhd = $DebugVhdEarly
+    } else {
+        Write-Host "ERROR: No VHD found in build\boot\. Run build.bat first." -ForegroundColor Red
+        exit 1
+    }
 }
+
+# ---------- helpers ---------------------------------------------------------
+function Write-Step([string]$msg) { Write-Host "[setup-vm] $msg" -ForegroundColor Cyan }
 
 # ---------- prompt for settings ---------------------------------------------
 function Read-WithDefault([string]$Prompt, [string]$Default) {
@@ -63,13 +72,34 @@ $DefaultVMPath = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'HyperV
 $VMName = Read-WithDefault 'VM name' 'mini-os'
 $VMPath = Read-WithDefault 'VM file location' $DefaultVMPath
 
+# --- Choose VHD variant (release or debug) -----------------------------------
+$ReleaseVhd = Join-Path $Root 'build\boot\mini-os.vhd'
+$DebugVhd   = Join-Path $Root 'build\boot\mini-os-debug.vhd'
+$hasRelease  = Test-Path $ReleaseVhd
+$hasDebug    = Test-Path $DebugVhd
+
+if ($hasRelease -and $hasDebug) {
+    $choice = Read-WithDefault 'VHD variant (release / debug)' 'release'
+    if ($choice -match '^d') {
+        $SourceVhd = $DebugVhd
+        Write-Step "Using DEBUG VHD"
+    } else {
+        $SourceVhd = $ReleaseVhd
+        Write-Step "Using RELEASE VHD"
+    }
+} elseif ($hasDebug -and -not $hasRelease) {
+    Write-Step "Only debug VHD found — using debug build"
+    $SourceVhd = $DebugVhd
+} else {
+    Write-Step "Using release VHD"
+    # $SourceVhd already set to release path from earlier check
+}
+
 # ---------- derived paths ---------------------------------------------------
 $HddDir = Join-Path $VMPath 'HDD'
 $TargetVhd = Join-Path $HddDir 'mini-os.vhd'
 
-# ---------- helpers ---------------------------------------------------------
-function Write-Step([string]$msg) { Write-Host "[setup-vm] $msg" -ForegroundColor Cyan }
-
+# ---------- file helpers ----------------------------------------------------
 function Copy-LatestVhd {
     if (-not (Test-Path $HddDir)) {
         New-Item -ItemType Directory -Path $HddDir -Force | Out-Null
@@ -113,6 +143,10 @@ if ($existingVM) {
         Write-Step "Attached VHD to IDE 0:0."
     }
 
+    # Ensure COM1 is configured as a named pipe (for serial debug output)
+    Set-VMComPort -VMName $VMName -Number 1 -Path '\\.\pipe\minios-serial'
+    Write-Step "COM1 → \\.\pipe\minios-serial"
+
 } else {
     Write-Step "Creating new VM '$VMName'..."
 
@@ -137,21 +171,31 @@ if ($existingVM) {
     # Disable checkpoints (not useful for a toy OS)
     Set-VM -Name $VMName -CheckpointType Disabled
 
+    # Configure COM1 as a named pipe (for serial debug output)
+    Set-VMComPort -VMName $VMName -Number 1 -Path '\\.\pipe\minios-serial'
+    Write-Step "COM1 → \\.\pipe\minios-serial"
+
     Write-Step "VM '$VMName' created at $VMPath"
 }
 
 # ---------- summary ---------------------------------------------------------
 Write-Host ''
+$vhdLabel = if ($SourceVhd -match 'debug') { 'DEBUG' } else { 'RELEASE' }
 Write-Step '=== VM ready ==='
 Write-Host "  Name : $VMName"
 Write-Host "  Path : $VMPath"
-Write-Host "  VHD  : $TargetVhd"
+Write-Host "  VHD  : $TargetVhd ($vhdLabel)"
 Write-Host "  RAM  : 32 MB"
 Write-Host "  Gen  : 1"
+Write-Host "  COM1 : \\.\pipe\minios-serial"
 Write-Host ''
 Write-Host 'Next steps:' -ForegroundColor Yellow
 Write-Host "  Start-VM -Name '$VMName'           # start from PowerShell"
 Write-Host "  vmconnect localhost '$VMName'       # open console window"
+Write-Host ''
+Write-Host 'To read serial debug output (debug builds only):' -ForegroundColor Yellow
+Write-Host '  Use PuTTY: Serial, \\.\pipe\minios-serial'
+Write-Host '  Or: [System.IO.Pipes.NamedPipeClientStream]::new(".", "minios-serial", "In")'
 Write-Host ''
 Write-Host 'After rebuilding (.\build.ps1), just run this script again to update the VM.' -ForegroundColor Yellow
 Write-Host ''

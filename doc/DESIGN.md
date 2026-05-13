@@ -684,7 +684,7 @@ This document will be updated as the project evolves. Planned milestones:
 | **M6** ✅ | MNFS flat filesystem, FS.BIN module with INT 0x81 API, dir command, no hardcoded offsets |
 | **M7** | Switch to 32-bit protected mode (see [MEMORY-LAYOUT.md §8](MEMORY-LAYOUT.md#8-future-beyond-1-mb)) |
 | **M8** | Basic kernel with screen output (direct VGA framebuffer) |
-| **M9** | Simple memory manager |
+| **M9** | Simple memory manager (design pending) |
 
 ---
 
