@@ -234,6 +234,10 @@ Additional deep-dive documents:
   syscall tracing, user-mode debug syscalls, assertion macros, CPU fault handlers,
   stack canary, debug build mode.  Covers Hyper-V COM port setup and build integration.
 
+- **[doc/MEMORY-MANAGER.md](doc/MEMORY-MANAGER.md)** — Memory manager design and
+  implementation: INT 0x82 API (alloc, free, avail, info), MCB header format,
+  first-fit algorithm, forward coalescing, heap layout (0x8000–0xF7FF).
+
 ## Version History
 
 Each version is a tagged release you can checkout to see the project at that stage.

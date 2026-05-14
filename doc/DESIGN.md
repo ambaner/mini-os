@@ -7,15 +7,15 @@ architecture. The project is educational — designed so anyone can clone the re
 build a bootable disk image, and run it in a Hyper-V virtual machine with no prior
 OS-development experience.
 
-The current milestone is **M7: Debugging Infrastructure** — the MBR chain-loads a
+The current milestone is **M8: Memory Manager** — the MBR chain-loads a
 minimal VBR, which finds and loads LOADER.BIN from the MNFS directory, LOADER
 enables A20 and finds KERNEL.BIN, the kernel installs INT 0x80 syscalls, loads
-FS.BIN (filesystem module with INT 0x81 API), and finally loads the interactive
-shell (SHELL.BIN) — all file locations discovered via directory lookup, no
-hardcoded disk offsets.  Debug builds add serial logging, syscall tracing,
-user-mode debug syscalls, assertion macros, and CPU fault handlers.  Fault
-handlers are present in both release and debug builds (PIC remapped to avoid
-IRQ/exception vector conflicts).
+FS.BIN (filesystem module with INT 0x81 API), loads MM.BIN (heap allocator with
+INT 0x82 API), and finally loads the interactive shell (SHELL.BIN) — all file
+locations discovered via directory lookup, no hardcoded disk offsets.  Debug
+builds add serial logging, syscall tracing, user-mode debug syscalls, assertion
+macros, and CPU fault handlers.  Fault handlers are present in both release and
+debug builds (PIC remapped to avoid IRQ/exception vector conflicts).
 
 ### Design Principles
 
@@ -116,6 +116,10 @@ IRQ/exception vector conflicts).
                             │ to 0x0800  │
                             │ Init INT   │
                             │   0x81     │
+                            │ Load MM.BIN│
+                            │ to 0x2800  │
+                            │ Init INT   │
+                            │   0x82     │
                             │ Load SHELL │
                             │ to 0x3000  │
                             └─────┬──────┘
@@ -125,7 +129,7 @@ IRQ/exception vector conflicts).
                             │ SHELL.BIN  │
                             │  mnos:\>   │
                             │ (via INT   │
-                            │ 0x80/0x81) │
+                            │0x80/81/82) │
                             └────────────┘
 ```
 
@@ -237,14 +241,16 @@ The loader:
 ### 2.6 KERNEL.BIN
 
 The kernel (`src/kernel/kernel.asm`) is loaded by the loader to 0x5000.  It
-installs the INT 0x80 syscall handler, then loads FS.BIN and SHELL.BIN via
-MNFS directory lookup:
+installs the INT 0x80 syscall handler, then loads FS.BIN, MM.BIN, and SHELL.BIN
+via MNFS directory lookup:
 
 1. Installs INT 0x80 syscall handler in the IVT
 2. Finds FS.BIN via MNFS directory, loads to 0x0800 (reusing LOADER's memory)
 3. Calls FS.BIN init (at offset 6) — installs INT 0x81 filesystem handler
-4. Finds SHELL.BIN via MNFS directory, loads to 0x3000
-5. Jumps to SHELL.BIN
+4. Finds MM.BIN via MNFS directory, loads to 0x2800
+5. Calls MM.BIN init (at offset 6) — installs INT 0x82 memory manager handler
+6. Finds SHELL.BIN via MNFS directory, loads to 0x3000
+7. Jumps to SHELL.BIN
 
 ### 2.7 FS.BIN
 
@@ -261,9 +267,27 @@ FS Header:
 > **📄 Full specification**: See [FILESYSTEM.md](FILESYSTEM.md) for the complete
 > MNFS format, directory structure, INT 0x81 API, and design rationale.
 
-### 2.8 SHELL.BIN
+### 2.8 MM.BIN
 
-The shell (`src/shell/shell.asm`) is loaded by the loader to 0x3000.  It provides
+The memory manager (`src/mm/mm.asm`) is loaded by the kernel to 0x2800.
+It owns the INT 0x82 memory management syscall interface.  Header:
+
+```
+MM Header:
+  Offset 0:   'MNMM'    Magic identifier (4 bytes)
+  Offset 4:   dw N      MM size in sectors
+```
+
+Provides heap allocation services (first-fit, word-aligned) over a 30 KB
+heap region (0x8000–0xF7FF).  Supports alloc, free, available-memory query,
+and heap info.
+
+> **📄 Full specification**: See [MEMORY-MANAGER.md](MEMORY-MANAGER.md) for the
+> complete INT 0x82 API, MCB header format, and allocation algorithm.
+
+### 2.9 SHELL.BIN
+
+The shell (`src/shell/shell.asm`) is loaded by the kernel to 0x3000.  It provides
 the interactive command-line interface.  Header:
 
 ```
@@ -272,7 +296,7 @@ SHELL Header:
   Offset 4:   dw N      Shell size in sectors
 ```
 
-### 2.9 Disk Layout
+### 2.10 Disk Layout
 
 > **📄 Design rationale**: See [BOOT-LAYOUT-RATIONALE.md](BOOT-LAYOUT-RATIONALE.md)
 > for how this layout compares to DOS, Windows, and Linux.
@@ -461,273 +485,6 @@ allocation, no differencing chains, no BAT — just:
 │        Raw disk data                 │  ← disk_size bytes (16 MB)
 │        (MBR at byte 0, rest zeroed)  │
 ├──────────────────────────────────────┤
-│        VHD Footer (512 bytes)        │  ← identifies file as VHD
-└──────────────────────────────────────┘
-```
+│        VHD Footer (512 by
 
-### 4.2 VHD Footer Structure
-
-The footer follows the **VHD 1.0 specification** (originally by Connectix, later
-Microsoft). Key fields:
-
-| Offset | Size | Field              | Value                       |
-|--------|------|--------------------|-----------------------------|
-| 0      | 8    | Cookie             | `conectix`                  |
-| 8      | 4    | Features           | `0x00000002` (reserved)     |
-| 12     | 4    | Format Version     | `0x00010000` (v1.0)         |
-| 16     | 8    | Data Offset        | `0xFFFFFFFFFFFFFFFF` (fixed) |
-| 24     | 4    | Timestamp          | Seconds since 2000-01-01    |
-| 28     | 4    | Creator App        | `mnos`                      |
-| 36     | 4    | Creator Host OS    | `Wi2k` (Windows)            |
-| 40     | 8    | Original Size      | Disk size in bytes           |
-| 48     | 8    | Current Size       | Disk size in bytes           |
-| 56     | 4    | Disk Geometry      | CHS (computed per spec)     |
-| 60     | 4    | Disk Type          | `2` (Fixed)                 |
-| 64     | 4    | Checksum           | One's complement of sum     |
-| 68     | 16   | Unique ID          | Random UUID                 |
-| 84     | 1    | Saved State        | `0`                         |
-
-### 4.3 CHS Geometry
-
-The VHD spec requires CHS geometry derived from total sector count. The algorithm
-(implemented in `create-vhd.ps1`) selects sectors/track from {17, 31, 63, 255} and
-heads from {4..16} to stay within the 1024-cylinder BIOS limit where possible.
-
-For 16 MB (32,768 sectors): **C/H/S = 481/4/17**.
-
-### 4.4 Disk Size
-
-The default disk size is **16 MB**. Hyper-V supports VHDs as small as 3 MB, so 16 MB is
-well within range. The size is configurable via `build.bat` (edit `tools/build.ps1` to change `-DiskSizeMB`).
-
----
-
-## 5. Toolchain
-
-### 5.1 NASM (Netwide Assembler)
-
-- **Version**: 2.16.03 (win64)
-- **Role**: Assembles 16-bit x86 real-mode code into flat binary (`-f bin`).
-- **Acquisition**: `build.bat` auto-downloads from `nasm.us` into `tools/nasm/` if not
-  found on PATH. The downloaded copy is gitignored.
-
-### 5.2 PowerShell 7+
-
-All build and deployment scripts require **PowerShell 7.0 or later**. Each script
-includes a `#Requires -Version 7.0` directive that produces a clear error on older
-versions.
-
-| Script | Purpose | Elevation |
-|--------|---------|-----------|
-| `tools/build.ps1` | Assemble MBR + VBR + LOADER + FS + KERNEL + SHELL, create disk image + VHD | Not required |
-| `tools/setup-vm.ps1` | Create/update Hyper-V VM | **Admin required** |
-| `tools/create-disk.ps1` | Generate MNFS directory + pack files into raw image | Not required (called by build.ps1) |
-| `tools/create-vhd.ps1` | Raw image → VHD conversion | Not required (called by build.ps1) |
-
-### 5.3 No Other Dependencies
-
-There is no C compiler, no linker, no Python, no WSL requirement. The entire toolchain
-is PowerShell + NASM.
-
----
-
-## 6. Build System
-
-### 6.1 Build Pipeline
-
-```
- build.bat
-     │
-     ├─ 1. Locate or download NASM
-     │
-     ├─ 2. nasm -f bin -I src/include/ -o build/boot/mbr.bin src/boot/mbr.asm
-     │      └─ 512 bytes: code + empty partition table + 0xAA55
-     │
-     ├─ 3. nasm -f bin -I src/include/ -o build/boot/vbr.bin src/boot/vbr.asm
-     │      └─ 1024 bytes (2 sectors): header + load_mnex chain + 0xAA55
-     │
-     ├─ 4. nasm -f bin -I src/include/ -o build/boot/loader.bin src/loader/loader.asm
-     │      └─ 1536 bytes (3 sectors): A20 enablement + boot menu + load_mnex
-     │
-     ├─ 5. Release variants (no -dDEBUG):
-     │      ├─ nasm ... -o build/boot/fs.bin       (2 sectors)
-     │      ├─ nasm ... -o build/boot/kernel.bin   (7 sectors)
-     │      └─ nasm ... -o build/boot/shell.bin    (12 sectors)
-     │
-     ├─ 6. Debug variants (-dDEBUG):
-     │      ├─ nasm -dDEBUG ... -o build/boot/fsd.bin       (4 sectors)
-     │      ├─ nasm -dDEBUG ... -o build/boot/kerneld.bin   (11 sectors)
-     │      └─ nasm -dDEBUG ... -o build/boot/shelld.bin    (12 sectors)
-     │
-     ├─ 7. tools/create-disk.ps1 — build raw disk image (7 MNFS files)
-     │      └─ Stamps partition table into MBR, partition LBA into VBR,
-     │         generates MNFS directory, packs files contiguously
-     │
-     └─ 8. tools/create-vhd.ps1 — wrap as VHD
-            └─ Appends 512-byte VHD footer
-```
-
-### 6.2 Build Outputs
-
-| File | Size | Description |
-|------|------|-------------|
-| `build/boot/mbr.bin` | 512 B | Raw MBR binary (before partition table stamp) |
-| `build/boot/vbr.bin` | 1 KB (2 × 512) | Raw VBR binary |
-| `build/boot/loader.bin` | 1.5 KB (3 × 512) | LOADER.BIN with A20 enablement + boot menu |
-| `build/boot/fs.bin` | 1 KB (2 × 512) | FS.BIN — MNFS filesystem module (release) |
-| `build/boot/kernel.bin` | 3.5 KB (7 × 512) | KERNEL.BIN with INT 0x80 + file loading (release) |
-| `build/boot/shell.bin` | 6 KB (12 × 512) | SHELL.BIN with all commands (release) |
-| `build/boot/fsd.bin` | 2 KB (4 × 512) | FSD.BIN — debug FS with serial logging |
-| `build/boot/kerneld.bin` | 5.5 KB (11 × 512) | KERNELD.BIN — debug kernel with tracing + canary |
-| `build/boot/shelld.bin` | 6 KB (12 × 512) | SHELLD.BIN — debug shell |
-| `build/boot/mini-os.img` | 16 MB | Partitioned raw disk image (7 MNFS files, 52 data sectors) |
-| `build/boot/mini-os.vhd` | 16 MB + 512 B | Bootable fixed VHD |
-
-### 6.3 Clean Build
-
-```cmd
-build.bat clean
-```
-
-Removes the `build/` directory before assembling.
-
----
-
-## 7. VM Deployment (setup-vm.bat)
-
-### 7.1 First Run
-
-1. Prompts for VM name (default: `mini-os`) and file location.
-2. Creates `<location>/HDD/` and copies `build/boot/mini-os.vhd` there.
-3. Creates a Generation 1 VM:
-   - 32 MB static RAM
-   - IDE 0:0 → `HDD/mini-os.vhd`
-   - No network adapter
-   - Checkpoints disabled
-4. Prints `Start-VM` / `vmconnect` commands.
-
-### 7.2 Subsequent Runs (Update Flow)
-
-1. Detects existing VM by name.
-2. Stops the VM if running (`Stop-VM -TurnOff`).
-3. Overwrites the VHD in the `HDD/` folder with the latest build.
-4. Ensures IDE 0:0 points to the updated VHD.
-5. VM is ready to start again.
-
-This makes the edit → build → test cycle seamless:
-
-```
-edit mbr.asm  →  build.bat  →  setup-vm.bat  →  Start-VM
-```
-
----
-
-## 8. Project Structure
-
-```
-mini-os/
-├── .github/
-│   ├── ISSUE_TEMPLATE/           Bug report & feature request templates
-│   └── workflows/
-│       ├── build.yml             CI — build & verify on push/PR
-│       └── release.yml           CD — package & release on version tags
-├── doc/
-│   ├── DESIGN.md                 ← this document
-│   ├── FILESYSTEM.md             MNFS filesystem specification
-│   └── LOADER.md                 Stage-2 loader design (A20, boot menu)
-├── src/
-│   ├── include/                     Shared assembly includes (%include)
-│   │   ├── bib.inc                  Boot Info Block field addresses
-│   │   ├── memory.inc               Component memory load addresses
-│   │   ├── mnfs.inc                 MNFS constants & INT 0x81 numbers
-│   │   ├── find_file.inc            Bootstrap MNFS directory lookup
-│   │   ├── syscalls.inc             INT 0x80 syscall function numbers
-│   │   └── load_binary.inc          Shared MNEX binary loader subroutine
-│   ├── boot/
-│   │   ├── mbr.asm               MBR — partition table scan + VBR chain-load
-│   │   └── vbr.asm               VBR — finds LOADER.BIN via MNFS directory
-│   ├── loader/
-│   │   └── loader.asm            LOADER — A20 enablement + finds KERNEL.BIN
-│   ├── kernel/
-│   │   ├── kernel.asm            KERNEL — manifest (entry point + includes)
-│   │   ├── kernel_syscall.inc    INT 0x80 dispatcher + all syscall handlers
-│   │   ├── kernel_data.inc       Boot messages, filenames, DAP
-│   │   ├── kernel_fault.inc      PIC remap + CPU exception handlers
-│   │   └── kernel_stack.inc      Stack canary (init, check, macros)
-│   ├── fs/
-│   │   └── fs.asm                FS — INT 0x81 filesystem API + dir cache
-│   ├── mm/
-│   │   └── mm.asm                MM — INT 0x82 heap allocator (MCB chain)
-│   └── shell/
-│       ├── shell.asm             SHELL — manifest (init + dispatch + includes)
-│       ├── shell_cmd_simple.inc  Commands: cls, reboot, help, ver
-│       ├── shell_cmd_dir.inc     Command: dir (MNFS file listing)
-│       ├── shell_cmd_mem.inc     Command: mem (memory info)
-│       ├── shell_cmd_sysinfo.inc Command: sysinfo (5-page system info)
-│       ├── shell_readline.inc    Input subroutines (readline, strcmp)
-│       └── shell_data.inc        String constants + runtime data
-├── tools/
-│   ├── build.ps1                 Build logic (assembles all binaries with -I include)
-│   ├── create-disk.ps1           MNFS directory + contiguous file packing
-│   ├── create-vhd.bat            VHD tool — batch wrapper
-│   ├── create-vhd.ps1            Raw image → fixed VHD converter
-│   ├── setup-vm.ps1              Hyper-V VM create/update logic
-│   └── nasm/                     Auto-downloaded NASM (gitignored)
-├── build/                        Build output (gitignored)
-│   └── boot/
-│       ├── mbr.bin               Assembled MBR binary (512 B)
-│       ├── vbr.bin               Assembled VBR binary (1 KB)
-│       ├── loader.bin            Assembled LOADER binary (1 KB)
-│       ├── fs.bin                Assembled FS binary (1 KB)
-│       ├── kernel.bin            Assembled KERNEL binary (3.5 KB)
-│       ├── shell.bin             Assembled SHELL binary (6 KB)
-│       ├── mini-os.img           Partitioned raw disk image
-│       └── mini-os.vhd           Bootable VHD
-├── build.bat                     Build entry point
-├── setup-vm.bat                  Hyper-V VM setup entry point
-├── CHANGELOG.md
-├── CODE_OF_CONDUCT.md
-├── CONTRIBUTING.md
-├── LICENSE
-├── README.md
-└── .gitignore
-```
-
----
-
-## 9. Future Roadmap
-
-This document will be updated as the project evolves. Planned milestones:
-
-| Milestone | Description |
-|-----------|-------------|
-| **M0** ✅ | Boot MBR, print banner, halt |
-| **M1** ✅ | Partition table scan, VBR chain-load, multi-sector boot area |
-| **M1+** ✅ | VBR system information display (5 pages: CPU, memory, BDA, video/disk, IVT) |
-| **M2** ✅ | Interactive shell (`mnos:\>`) with command dispatch, `sysinfo` as first command |
-| **M3** ✅ | A20 gate enablement (BIOS / 8042 / Fast A20 with fallbacks) |
-| **M4** ✅ | Three-stage boot chain (VBR → LOADER.BIN → SHELL.BIN), Boot Info Block |
-| **M5** ✅ | 16-bit kernel + INT 0x80 syscall interface, shell as user-mode executable |
-| **M6** ✅ | MNFS flat filesystem, FS.BIN module with INT 0x81 API, dir command, no hardcoded offsets |
-| **M7** ✅ | Serial debugging (COM1, debug macros, syscall tracing, debug builds), user-mode debug syscalls, assert macros, CPU fault handlers (PIC remap, 7 vectors, both builds) |
-| **M8** | Switch to 32-bit protected mode (see [MEMORY-LAYOUT.md §8](MEMORY-LAYOUT.md#8-future-beyond-1-mb)) |
-| **M9** | Basic kernel with screen output (direct VGA framebuffer) |
-| **M10** | Simple memory manager (design pending) |
-
----
-
-## 10. References
-
-- [NASM Manual](https://www.nasm.us/xdoc/2.16.03/html/nasmdoc0.html)
-- [VHD Specification (Microsoft)](https://learn.microsoft.com/en-us/windows/win32/vstor/about-vhd)
-- [OSDev Wiki — Boot Sequence](https://wiki.osdev.org/Boot_Sequence)
-- [OSDev Wiki — MBR](https://wiki.osdev.org/MBR_(x86))
-- [INT 10h — BIOS Video Services](https://en.wikipedia.org/wiki/INT_10H)
-- [Hyper-V Generation 1 vs 2](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/plan/should-i-create-a-generation-1-or-2-virtual-machine-in-hyper-v)
-- [MNFS Filesystem Specification](FILESYSTEM.md) — flat filesystem format, directory table, FS.BIN module, INT 0x81 API
-- [Stage-2 Loader Design](LOADER.md) — A20 gate, boot menu design, dual-boot architecture, BIB propagation
-- [Boot Layout Design Rationale](BOOT-LAYOUT-RATIONALE.md) — why three stages, DOS/Windows/Linux comparisons, LBA gap analysis
-- [Memory Layout Design Document](MEMORY-LAYOUT.md) — exhaustive memory map, stack analysis, A20/protected mode roadmap
-- [CPU Modes and Transitions](CPU-MODES-AND-TRANSITIONS.md) — 16→32→64-bit journey, GDT/IDT/paging, hardware drivers, BIOS vs UEFI
-- [MNEX Binary Format & Toolchain](MNEX-BINARY-FORMAT.md) — custom binary format spec, NASM+Clang toolchain, build pipeline, header layout
-- [System Calls](SYSTEM-CALLS.md) — user↔kernel boundary, IVT/IDT/SYSCALL mechanisms, ring transitions, syscall table
+<note>Content truncated. Call the fetch tool with a start_index of 20000 to get more content.</note>
