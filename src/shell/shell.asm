@@ -29,6 +29,7 @@
 
 %include "syscalls.inc"
 %include "mnfs.inc"
+%include "memory.inc"
 
 [BITS 16]
 [ORG 0x3000]                        ; Kernel loads us here

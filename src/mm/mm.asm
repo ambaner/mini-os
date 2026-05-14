@@ -155,6 +155,7 @@ mm_table:
 ; block large enough, optionally splits it, marks it allocated.
 ;
 ; Input:  CX = requested size in bytes (must be > 0)
+;         DL = owner ID (0-7, stored in MCB flags bits 1-3)
 ; Output: BX = pointer to usable memory (past MCB header)
 ;         CF clear = success, CF set = failure (no block large enough)
 ; Clobbers: AX
@@ -247,8 +248,15 @@ mm_alloc:
     ; Use the entire block (no split — remainder too small)
 
 .alloc_mark:
-    ; --- Mark block as allocated --------------------------------------------
-    mov byte [di + MCB_FLAGS_OFF], MCB_FLAG_USED
+    ; --- Mark block as allocated with owner ID --------------------------------
+    ; flags = MCB_FLAG_USED | (DL << MCB_OWNER_SHIFT)
+    push cx
+    mov cl, dl
+    and cl, 0x07                     ; Mask to 3-bit owner (0-7)
+    shl cl, MCB_OWNER_SHIFT          ; Shift into bits 1-3
+    or  cl, MCB_FLAG_USED            ; Set allocated bit
+    mov byte [di + MCB_FLAGS_OFF], cl
+    pop cx
 
     ; --- Return pointer past the header -------------------------------------
     mov bx, di
@@ -259,7 +267,7 @@ mm_alloc:
     pop si                           ; Restore SI saved by dispatcher
 
 %ifdef DEBUG
-    ; Log: "[MM] alloc CX=size BX=ptr"
+    ; Log: "[MM] alloc sz=XXXX ptr=XXXX own=X"
     push si
     push ax
     mov si, mm_alloc_ok             ; "[MM] alloc sz="
@@ -270,6 +278,12 @@ mm_alloc:
     call serial_puts
     mov ax, bx
     call serial_hex16
+    mov si, mm_own_eq               ; " own="
+    call serial_puts
+    mov al, dl
+    and al, 0x07
+    add al, '0'                     ; Convert to ASCII digit
+    call serial_putc
     call serial_crlf
     pop ax
     pop si
@@ -533,6 +547,7 @@ mm_alloc_fail_msg  db '[MM] alloc FAIL sz=', 0
 mm_free_ok         db '[MM] free ptr=', 0
 mm_free_fail_msg   db '[MM] free FAIL ptr=', 0
 mm_ptr_eq          db ' ptr=', 0
+mm_own_eq          db ' own=', 0
 %endif
 
 ; =============================================================================

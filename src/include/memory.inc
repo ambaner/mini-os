@@ -66,6 +66,7 @@ HEAP_SIZE       equ HEAP_END - HEAP_START  ; 30,720 bytes (30 KB)
 ; Each heap block starts with a 4-byte header:
 ;   Offset 0: size    (2 bytes) — total block size INCLUDING header
 ;   Offset 2: flags   (1 byte)  — bit 0: 1=allocated, 0=free
+;                                  bits 1-3: owner ID (0-7)
 ;   Offset 3: magic   (1 byte)  — 'M' (0x4D) for integrity checking
 MCB_SIZE_OFF    equ 0                ; Offset of size field in MCB
 MCB_FLAGS_OFF   equ 2                ; Offset of flags field in MCB
@@ -73,12 +74,24 @@ MCB_MAGIC_OFF   equ 3                ; Offset of magic field in MCB
 MCB_HDR_SIZE    equ 4                ; Header size in bytes
 MCB_MAGIC       equ 0x4D             ; 'M' — block magic byte
 MCB_FLAG_USED   equ 0x01             ; Flag bit: block is allocated
+MCB_OWNER_MASK  equ 0x0E             ; Mask for owner bits (bits 1-3)
+MCB_OWNER_SHIFT equ 1                ; Shift count to extract owner ID
 MCB_MIN_BLOCK   equ 8                ; Minimum block: 4 header + 4 payload
+
+; --- Owner IDs (bits 1-3 of flags byte) --------------------------------------
+MCB_OWNER_NONE  equ 0                ; Free block / unknown
+MCB_OWNER_KERN  equ 1                ; Kernel (INT 0x80)
+MCB_OWNER_FS    equ 2                ; Filesystem (INT 0x81)
+MCB_OWNER_MM    equ 3                ; Memory manager internal
+MCB_OWNER_SHELL equ 4                ; Shell / user process
+MCB_OWNER_USR1  equ 5                ; Reserved for future use
+MCB_OWNER_USR2  equ 6                ; Reserved for future use
+MCB_OWNER_USR3  equ 7                ; Reserved for future use
 
 ; --- INT 0x82 function numbers -----------------------------------------------
 ; AH = function number before INT 0x82.
 ;
-; MEM_ALLOC: CX = requested size in bytes
+; MEM_ALLOC: CX = requested size in bytes, DL = owner ID (0-7)
 ;            Returns: BX = pointer to usable memory (past MCB header)
 ;            CF set on failure (out of memory or invalid size)
 ;

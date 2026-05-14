@@ -261,6 +261,70 @@ cmd_mem:
     mov ah, SYS_PRINT_STRING
     int 0x80
 
+    ; --- Heap Block Detail (direct walk of MCB chain) -------------------------
+    mov si, msg_heap_detail_hdr
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    mov di, HEAP_START               ; DI = current block pointer
+
+.mem_heap_walk:
+    cmp di, HEAP_END
+    jae .mem_heap_done
+
+    ; Validate magic
+    cmp byte [di + MCB_MAGIC_OFF], MCB_MAGIC
+    jne .mem_heap_done               ; Corrupted — stop
+
+    ; Print block address
+    mov si, msg_indent
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    mov dx, di
+    mov ah, SYS_PRINT_HEX16
+    int 0x80
+
+    ; Print size
+    mov si, msg_heap_sz_eq
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    mov dx, [di + MCB_SIZE_OFF]
+    mov ah, SYS_PRINT_DEC16
+    int 0x80
+
+    ; Print status (free/used)
+    test byte [di + MCB_FLAGS_OFF], MCB_FLAG_USED
+    jz .mem_block_free
+
+    ; Allocated — print owner name
+    mov si, msg_heap_alloc
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    ; Extract owner ID: (flags >> 1) & 0x07
+    mov al, [di + MCB_FLAGS_OFF]
+    shr al, MCB_OWNER_SHIFT
+    and al, 0x07
+
+    ; Look up owner name from table
+    movzx bx, al
+    shl bx, 1                       ; Word table index
+    mov si, [mem_owner_table + bx]
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    jmp .mem_block_next
+
+.mem_block_free:
+    mov si, msg_heap_free_tag
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+.mem_block_next:
+    ; Advance to next block
+    add di, [di + MCB_SIZE_OFF]
+    jmp .mem_heap_walk
+
+.mem_heap_done:
     mov si, msg_crlf
     mov ah, SYS_PRINT_STRING
     int 0x80

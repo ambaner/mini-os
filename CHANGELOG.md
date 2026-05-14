@@ -5,13 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
+
+## [0.9.2] — 2026-05-14
+
+### Added
+- **MCB owner tags** — flags byte bits 1-3 carry a 3-bit owner ID (0-7):
+  kernel=1, fs=2, mm=3, shell=4, usr1-3=5-7.  `MEM_ALLOC` (AH=0x01) now
+  accepts DL = owner ID.
+- **Shell `mem` block detail walk** — walks the MCB chain and prints each
+  block's address, size, status (used/free), and owner name.
+- **MM debug trace shows owner** — alloc success log now includes `own=N`
+  digit in serial output.
+- **Owner ID constants** in `memory.inc` — `MCB_OWNER_MASK`, `MCB_OWNER_SHIFT`,
+  `MCB_OWNER_KERN` through `MCB_OWNER_USR3`.
+- **Owner name table** in shell — 8-entry word pointer table for display.
+
+### Changed
+- **MEM_ALLOC ABI** — input: CX = size, DL = owner (was: BX = size only).
+  Output: BX = pointer (was: AX = pointer).
+- **MEMORY-MANAGER.md** — documented owner ID table, updated §8.2 ABI, updated
+  function summary table.
 
 ## [0.9.1] — 2026-05-14
 
 ### Added
-- **Shell `mem` heap statistics** — the `mem` command now displays heap info
-  via `INT 0x82` (MEM_INFO + MEM_AVAIL): total, used, free, block count,
-  and largest free block.
+- **Shell `mem` heap statistics** — displays total/used/free/blocks/largest via
+  INT 0x82 MEM_INFO + MEM_AVAIL.
 - **MM debug serial tracing** — debug builds log all INT 0x82 calls to COM1:
   function number on entry, alloc success/fail with size and pointer,
   free success/fail with pointer.

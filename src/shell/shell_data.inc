@@ -4,7 +4,7 @@
 
 ; --- Shell strings -----------------------------------------------------------
 msg_banner      db 13, 10
-                db '  MNOS v0.9.1 ', 0      ; Tag appended at runtime
+                db '  MNOS v0.9.2 ', 0      ; Tag appended at runtime
 
 msg_tag_release db '[Release]', 13, 10, 13, 10, 0
 msg_tag_debug   db '[Debug]', 13, 10, 13, 10, 0
@@ -32,7 +32,7 @@ str_reboot      db 'reboot', 0
 str_dir         db 'dir', 0
 
 ; --- ver command strings -----------------------------------------------------
-msg_ver_line1   db '  MNOS v0.9.1 ', 0     ; Tag appended at runtime
+msg_ver_line1   db '  MNOS v0.9.2 ', 0     ; Tag appended at runtime
 msg_ver_rest    db '  Arch:      x86 real mode (16-bit)', 13, 10
                 db '  Assembler: NASM', 13, 10
                 db '  Platform:  Hyper-V Gen 1', 13, 10
@@ -147,6 +147,33 @@ msg_heap_used   db '    Used:     ', 0
 msg_heap_free   db '    Free:     ', 0
 msg_heap_blocks db '    Blocks:   ', 0
 msg_heap_largest db '    Largest:  ', 0
+
+; --- Heap block detail strings ------------------------------------------------
+msg_heap_detail_hdr db 13, 10, '    Addr   Size   Status  Owner', 13, 10, 0
+msg_heap_sz_eq  db '  ', 0
+msg_heap_alloc  db '  used    ', 0
+msg_heap_free_tag db '  free', 13, 10, 0
+
+; Owner name strings
+msg_own_none    db 'none', 13, 10, 0
+msg_own_kern    db 'kernel', 13, 10, 0
+msg_own_fs      db 'fs', 13, 10, 0
+msg_own_mm      db 'mm', 13, 10, 0
+msg_own_shell   db 'shell', 13, 10, 0
+msg_own_usr1    db 'usr1', 13, 10, 0
+msg_own_usr2    db 'usr2', 13, 10, 0
+msg_own_usr3    db 'usr3', 13, 10, 0
+
+; Owner name pointer table (indexed by owner ID 0-7)
+mem_owner_table:
+    dw msg_own_none
+    dw msg_own_kern
+    dw msg_own_fs
+    dw msg_own_mm
+    dw msg_own_shell
+    dw msg_own_usr1
+    dw msg_own_usr2
+    dw msg_own_usr3
 
 ; --- CPU information strings --------------------------------------------------
 msg_cpu_vendor  db '  Vendor:     ', 0

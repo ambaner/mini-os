@@ -341,8 +341,25 @@ Offset   Size   Field           Description
 ───────────────────────────────────────────────────────────────
 +0       2 B    block_size      Total size in bytes (header + data)
 +2       1 B    flags           Bit 0: 1 = allocated, 0 = free
+                                Bits 1-3: owner ID (0-7)
+                                Bits 4-7: reserved (0)
 +3       1 B    magic           Always 0x4D ('M') — corruption detector
 ```
+
+**Owner IDs** (stamped by `MEM_ALLOC` via DL register):
+
+| ID | Constant          | Meaning              |
+|----|-------------------|----------------------|
+| 0  | `MCB_OWNER_NONE`  | Free / unowned       |
+| 1  | `MCB_OWNER_KERN`  | Kernel allocation    |
+| 2  | `MCB_OWNER_FS`    | File system          |
+| 3  | `MCB_OWNER_MM`    | Memory manager self  |
+| 4  | `MCB_OWNER_SHELL` | Shell                |
+| 5  | `MCB_OWNER_USR1`  | User process 1       |
+| 6  | `MCB_OWNER_USR2`  | User process 2       |
+| 7  | `MCB_OWNER_USR3`  | User process 3       |
+
+Extract owner: `(flags >> 1) & 0x07`.  Stamp owner: `flags = MCB_FLAG_USED | (owner << 1)`.
 
 **Why 4 bytes?**  It's the minimum needed to track a block reliably.  The
 2-byte size field supports blocks up to 65,535 bytes (well beyond our 30 KB
@@ -738,7 +755,8 @@ exceeds a few dozen entries.  The scan is trivially fast.
 ├──────┬────────────────┬──────────────────┬────────────────────┤
 │  AH  │  Function      │  Input           │  Output            │
 ├──────┼────────────────┼──────────────────┼────────────────────┤
-│ 0x01 │ MEM_ALLOC      │ BX = size (bytes)│ AX = ptr (0=fail)  │
+│ 0x01 │ MEM_ALLOC      │ CX = size (bytes)│ BX = ptr (0=fail)  │
+│      │                │ DL = owner (0-7) │ CF = error          │
 │ 0x02 │ MEM_FREE       │ BX = ptr         │ CF = error         │
 │ 0x03 │ MEM_AVAIL      │ (none)           │ AX = largest free  │
 │      │                │                  │ BX = total free    │
@@ -756,30 +774,32 @@ Allocate a contiguous block of memory.
 ```
 Input:
     AH    = 0x01
-    BX    = requested size in bytes (1–30716)
+    CX    = requested size in bytes (1–30716)
+    DL    = owner ID (0–7, see §5.2 Owner IDs table)
 
 Output (success):
-    AX    = pointer to usable memory (block_addr + 4)
+    BX    = pointer to usable memory (block_addr + 4)
     CF    = clear
 
 Output (failure):
-    AX    = 0x0000
+    BX    = 0x0000
     CF    = set
 
 Failure reasons:
-    - BX = 0 (zero-size allocation)
+    - CX = 0 (zero-size allocation)
     - No free block large enough (out of memory / fragmented)
 ```
 
 **Usage example:**
 
 ```nasm
-; Allocate a 512-byte buffer for file I/O
+; Allocate a 512-byte buffer for file I/O (owned by FS)
     mov ah, 0x01            ; MEM_ALLOC
-    mov bx, 512             ; request 512 bytes
+    mov cx, 512             ; request 512 bytes
+    mov dl, MCB_OWNER_FS    ; owned by file system
     int 0x82
     jc .alloc_failed        ; CF set = out of memory
-    mov [file_buf], ax      ; save pointer
+    mov [file_buf], bx      ; save pointer
 
     ; Use the buffer...
     mov di, [file_buf]
