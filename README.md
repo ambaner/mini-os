@@ -1,6 +1,6 @@
 # mini-os
 
-A minimalistic operating system, built from scratch — currently at **v0.7.2**.
+A minimalistic operating system, built from scratch — currently at **v0.7.4**.
 MBR reads the partition table, chain-loads a VBR which loads a stage-2 loader
 (A20 gate enablement), which loads a 16-bit kernel (KERNEL.BIN) that provides
 an INT 0x80 syscall interface, which loads the filesystem module (FS.BIN) with
@@ -38,8 +38,9 @@ build.bat /debug
 
 Adds serial logging, syscall tracing, assertion macros, and boot milestone
 messages via COM1 (115200 baud, 8N1). Assert failures dump registers to serial
-and halt the CPU. Release builds contain zero debug bytes.
-See `doc/DEBUGGING.md` §3–5 for details.
+and halt the CPU. CPU fault handlers are present in both builds — release shows
+exception name, CS:IP, registers, FLAGS, and stack on screen; debug additionally
+logs to serial. See `doc/DEBUGGING.md` §3–6 for details.
 
 To read serial output from a debug build (requires admin — manages VM lifecycle):
 
@@ -70,7 +71,7 @@ The script will prompt for a VM name and location (defaults are fine), then crea
 You should see the MBR banner and partition table info, then the shell:
 
 ```
-  MNOS v0.7.2
+  MNOS v0.7.4
 
 mnos:\>
 ```
@@ -215,6 +216,8 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.7.0` | **Serial Debugging** | COM1 serial logging, debug macros, syscall/FS tracing, debug build mode (`build.bat /debug`) |
 | `v0.7.1` | **User-Mode Debug Syscalls** | SYS_DBG_PRINT/HEX16/REGS (0x20–0x22) with caller tags, shell tracing |
 | `v0.7.2` | **Assert Macros** | ASSERT, ASSERT_CF_CLEAR, ASSERT_MAGIC — halt + register dump on failure; 0 bytes in release |
+| `v0.7.3` | **CPU Fault Handlers** | Trap #DE, #DB, #OF, #BR, #UD, #NM — exception name + CS:IP + register dump; debug only |
+| `v0.7.4` | **Release Fault Handlers** | Fault handlers in both builds — release shows name, CS:IP, registers, FLAGS, stack top on screen; halts cleanly. Removed #DF (IRQ0 conflict). |
 
 ```cmd
 git checkout v0.1.0      # see the project at any prior milestone

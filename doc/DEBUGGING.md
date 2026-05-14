@@ -1,7 +1,7 @@
 # Debugging Infrastructure — Design Document
 
 **Version:** 1.2
-**Status:** Partially implemented — v0.7.0 (serial, tracing, build mode), v0.7.1 (user-mode debug syscalls), v0.7.2 (assert macros)
+**Status:** Partially implemented — v0.7.0 (serial, tracing, build mode), v0.7.1 (user-mode debug syscalls), v0.7.2 (assert macros), v0.7.3 (fault handlers)
 **Audience:** mini-os developers
 
 ---
@@ -40,7 +40,7 @@ document designs seven facilities for mini-os, ordered by impact.
 │ § 4  Syscall Tracing │ Log every INT 0x80/0x81 with names      │ ✅ v0.7.0     │
 │ § 4b User-Mode Debug │ SYS_DBG_PRINT/HEX16/REGS with tags     │ ✅ v0.7.1     │
 │ § 5  Assert Macros   │ Compile-time condition checks           │ ✅ v0.7.2     │
-│ § 6  Fault Handlers  │ Trap CPU exceptions with state dump     │ 📋 Future     │
+│ § 6  Fault Handlers  │ Trap CPU exceptions with state dump     │ ✅ v0.7.4     │
 │ § 7  Machine Monitor │ Wozmon-style memory examine/deposit/run │ 📋 Future     │
 │ § 8  Debug Build Mode│ %ifdef DEBUG conditional assembly       │ ✅ v0.7.0     │
 │ § 9  Stack Canary    │ Corruption sentinel at stack floor      │ 📋 Future     │
@@ -959,14 +959,15 @@ MNFS) that it deserves its own macro:
 
 ---
 
-## 6. Fault Handlers *(not yet implemented)*
+## 6. Fault Handlers *(implemented in v0.7.3, extended to release in v0.7.4)*
 
 ### 6.1 The Problem
 
 When the CPU encounters an error condition (divide by zero, invalid opcode,
 general protection fault), it triggers an exception through the IVT.  In
 mini-os, these IVT entries still point to BIOS default handlers which
-typically do nothing useful — the system silently hangs or reboots.
+typically just `IRET` back to the faulting instruction — causing an infinite
+silent loop with no user-visible indication of the error.
 
 ### 6.2 Exception Vectors
 
@@ -975,122 +976,110 @@ exceptions.  The most relevant ones for mini-os:
 
 | Vector | Name | Common Cause |
 |--------|------|--------------|
-| 0x00 | Divide Error | `div` by zero, quotient overflow |
-| 0x01 | Debug/Single Step | TF flag set (debuggers use this) |
-| 0x04 | Overflow | `INTO` when OF=1 |
-| 0x05 | Bound Range Exceeded | `BOUND` instruction fails |
-| 0x06 | Invalid Opcode | CPU encounters undefined instruction |
-| 0x08 | Double Fault | Exception during exception handling |
+| 0x00 | Divide Error (#DE) | `div` by zero, quotient overflow |
+| 0x01 | Debug/Single Step (#DB) | TF flag set (debuggers use this) |
+| 0x04 | Overflow (#OF) | `INTO` when OF=1 |
+| 0x05 | Bound Range Exceeded (#BR) | `BOUND` instruction fails |
+| 0x06 | Invalid Opcode (#UD) | CPU encounters undefined instruction |
+| 0x07 | Device Not Available (#NM) | FPU instruction without FPU |
 
-### 6.3 Installing Fault Handlers
+> **Note:** INT 0x08 (#DF Double Fault) is NOT trapped because in real mode the
+> PIC maps IRQ0 (hardware timer) to INT 0x08.  Installing a handler there
+> clobbers the timer ISR and hangs the system.  Trapping #DF requires PIC
+> remapping (a future enhancement).
 
-Each fault handler is registered by writing to the IVT during kernel init:
+### 6.3 Design: Both Builds Get Fault Handlers
+
+Unlike assert macros (debug-only, zero cost in release), fault handlers are
+installed in **both** release and debug builds.  Rationale:
+
+- A silent hang is never acceptable — users deserve a crash screen
+- The handler code adds only ~400 bytes to the release kernel (6→7 sectors)
+- This mimics Linux's approach: a kernel panic always prints diagnostics
+
+**Release output** (screen only via BIOS INT 0x10):
+```
+*** FAULT: #DE Divide Error at 1000:0142
+AX=0000 BX=0000 CX=0005 DX=0000
+SI=3500 DI=0800 BP=FFF0 SP=FFE4
+DS=1000 ES=0800 SS=1000 FL=0246
+Stack: 3142 1000 0246 0000
+System halted.
+```
+
+**Debug output** (adds serial logging before the screen dump):
+- Same screen output as release, PLUS
+- Exception name, CS:IP, and DBG_REGS macro output to COM1 serial
+
+### 6.4 Installing Fault Handlers
+
+Called unconditionally during kernel init (after INT 0x80 syscall setup):
 
 ```nasm
-; In kernel init, after installing INT 0x80:
-%ifdef DEBUG
-    ; Install fault handlers into IVT
-    ; IVT entry format: offset (word) + segment (word) at vector × 4
+; In kernel_start (always, not conditional):
+    call install_fault_handlers
+
+install_fault_handlers:
+    cli
+    push es
     xor ax, ax
     mov es, ax                          ; ES = 0x0000 (IVT segment)
 
     ; INT 0x00 — Divide Error
-    mov word [es:0x00], fault_div0
-    mov word [es:0x02], cs
+    mov word [es:0x00*4],   fault_de
+    mov word [es:0x00*4+2], cs
+    ; ... (same pattern for 0x01, 0x04-0x07)
+    ; NOTE: INT 0x08 not installed — conflicts with IRQ0 (timer)
 
-    ; INT 0x06 — Invalid Opcode
-    mov word [es:0x18], fault_ud
-    mov word [es:0x1A], cs
-%endif
+    pop es
+    sti
+    ret
 ```
 
-### 6.4 Fault Handler Implementation
+### 6.5 Fault Handler Implementation
 
-Each handler dumps the exception name, the faulting address (from the stack
-frame pushed by the CPU), and all registers:
+Each stub pushes its name string, then jumps to `fault_common`:
 
 ```nasm
-%ifdef DEBUG
-
-; ─── Common fault handler core ────────────────────────────────────
-; Called by each specific handler after pushing the exception name.
-; Stack at entry:
-;   [SP+0] = return address (back to specific handler's halt)
-;   [SP+2] = pointer to exception name string
-;   Beneath that, the CPU's exception frame:
-;     [SP+4] = faulting IP
-;     [SP+6] = faulting CS
-;     [SP+8] = faulting FLAGS
-
-fault_common:
-    ; Print exception banner
-    push si
-    mov si, .fault_banner
-    call serial_puts
-    call puts                           ; Also to screen
-    pop si
-
-    ; Print exception name (passed on stack)
-    mov si, [sp + 2]
-    call serial_puts
-    call puts
-    call serial_crlf
-
-    ; Print faulting address CS:IP
-    push si
-    mov si, .fault_at
-    call serial_puts
-    call puts
-    pop si
-
-    ; CS is at [sp + 6], IP is at [sp + 4]
-    mov ax, [sp + 6]                    ; Faulting CS
-    call serial_hex16
-    mov al, ':'
-    call serial_putc
-    mov ax, [sp + 4]                    ; Faulting IP
-    call serial_hex16
-    call serial_crlf
-
-    ; Dump all registers
-    DBG_REGS
-
-    ; Halt
-    cli
-.fault_halt:
-    hlt
-    jmp .fault_halt
-
-.fault_banner: db 13, 10, '*** CPU EXCEPTION: ', 0
-.fault_at:     db '  Fault at CS:IP = ', 0
-
-; ─── Specific fault handlers ─────────────────────────────────────
-
-fault_div0:
-    push .div0_name
+fault_de:
+    push word .de_name
     jmp fault_common
-.div0_name: db 'DIVIDE BY ZERO (#DE, INT 0)', 13, 10, 0
-
-fault_ud:
-    push .ud_name
-    jmp fault_common
-.ud_name: db 'INVALID OPCODE (#UD, INT 6)', 13, 10, 0
-
-%endif
+.de_name: db '#DE Divide Error', 0
 ```
 
-### 6.5 Example Output
+The `fault_common` handler:
+1. Saves all 7 GP registers (AX, BX, CX, DX, SI, DI, BP)
+2. (Debug only) Logs exception info to serial via `serial_puts`/`serial_hex16`
+3. Prints exception banner + name to screen via `puts`
+4. Prints faulting CS:IP via inline hex formatter
+5. Prints all registers + FLAGS from the saved stack frame
+6. Prints top 4 words from the original (pre-fault) stack
+7. Prints "System halted." and enters `cli; hlt` loop
+
+Stack frame layout after register saves:
+```
+SP+0  = BP   SP+2  = DI   SP+4  = SI   SP+6  = DX
+SP+8  = CX   SP+10 = BX   SP+12 = AX   SP+14 = name ptr
+SP+16 = IP   SP+18 = CS   SP+20 = FLAGS
+SP+22 = original stack top (pre-fault)
+```
+
+### 6.6 Example Output (Release Build)
 
 If the shell accidentally executes `div bx` when BX=0:
 
 ```
-*** CPU EXCEPTION: DIVIDE BY ZERO (#DE, INT 0)
-  Fault at CS:IP = 0000:3142
-AX=0000 BX=0000 CX=0005 DX=0000 SI=3500 DI=0800
+*** FAULT: #DE Divide Error at 3000:0142
+AX=0000 BX=0000 CX=0005 DX=0000
+SI=3500 DI=0800 BP=FFF0 SP=FFE4
+DS=3000 ES=0800 SS=3000 FL=0246
+Stack: 3142 3000 0246 0000
+System halted.
 ```
 
-This immediately tells you: division by zero at shell address 0x3142.  Without
-the fault handler, the system would silently reboot or hang with no indication.
+This immediately tells you: division by zero at shell address 0x0142,
+with full register and stack context for debugging.  Without the fault
+handler, the system would silently loop on the faulting instruction forever.
 
 ---
 

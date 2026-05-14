@@ -6,6 +6,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.7.4] — 2026-05-13
+
+### Changed
+- **CPU fault handlers now present in both release and debug builds** — a CPU
+  exception in any build produces a full crash screen instead of silently looping:
+  - Exception name (e.g., `#DE Divide Error`)
+  - Faulting CS:IP address
+  - Full register dump (AX, BX, CX, DX, SI, DI, BP, SP, DS, ES, SS, FLAGS)
+  - Top 4 stack words
+  - "System halted." message, then `cli; hlt`
+- Debug builds additionally log all fault info to serial (COM1)
+- Removed `#DF` (INT 0x08) handler — conflicts with IRQ0 (hardware timer) in
+  real mode; 6 vectors now trapped (#DE, #DB, #OF, #BR, #UD, #NM)
+- KERNEL.BIN release sector count: 6 → 7 (fault handler code ~400 bytes)
+- KERNEL.BIN debug sector count: 9 → 10 (serial output in fault_common)
+
+---
+
+## [0.7.3] — 2026-05-13
+
+### Added
+- **CPU exception fault handlers** (debug build only) — trap 7 exception
+  vectors and produce a diagnostic dump instead of silently triple-faulting:
+  - `#DE` (INT 0x00) — Divide Error
+  - `#DB` (INT 0x01) — Debug / Single Step
+  - `#OF` (INT 0x04) — Overflow
+  - `#BR` (INT 0x05) — Bound Range Exceeded
+  - `#UD` (INT 0x06) — Invalid Opcode
+  - `#NM` (INT 0x07) — Device Not Available
+  - ~~`#DF` (INT 0x08) — Double Fault~~ *(removed in v0.7.4 — conflicts with IRQ0 timer)*
+- On exception: prints `*** CPU EXCEPTION: <name>` with faulting CS:IP to
+  both serial and screen, dumps all registers to serial, then halts (`cli; hlt`)
+- `install_fault_handlers` subroutine called during kernel init (after INT 0x80)
+- Screen hex display helper for fault address output
+
+### Changed
+- KERNEL.BIN debug sector count: 8 → 9 (fault handler code adds ~300 bytes)
+- Release builds unchanged — all fault handler code under `%ifdef DEBUG`
+
+---
+
 ## [0.7.2] — 2026-05-13
 
 ### Added
