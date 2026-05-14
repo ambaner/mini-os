@@ -41,7 +41,7 @@
 ; =============================================================================
 fs_magic        db 'MNFS'           ; Magic identifier — filesystem module
 %ifdef DEBUG
-fs_sectors      dw 3                ; Module size in sectors (debug build)
+fs_sectors      dw 4                ; Module size in sectors (debug build)
 %else
 fs_sectors      dw 2                ; Module size in sectors (release build)
 %endif
@@ -88,10 +88,12 @@ fs_init:
     mov ah, SYS_READ_SECTOR         ; Kernel syscall for disk read
     int 0x80
     jc .init_fail                   ; Disk read error
+    ASSERT_CF_CLEAR "FS directory sector read failed"
 
     ; --- Validate MNFS magic in the cached directory -------------------------
     cmp dword [dir_cache], MNFS_MAGIC
     jne .init_fail
+    ASSERT_MAGIC dir_cache, MNFS_MAGIC, "MNFS directory magic mismatch"
 
     ; --- Cache the file count for quick access --------------------------------
     mov al, [dir_cache + MNFS_HDR_COUNT]
@@ -419,7 +421,7 @@ dir_cache:
 ; PADDING — fill to sector boundary
 ; =============================================================================
 %ifdef DEBUG
-times (3 * 512) - ($ - $$) db 0
+times (4 * 512) - ($ - $$) db 0
 %else
 times (2 * 512) - ($ - $$) db 0
 %endif

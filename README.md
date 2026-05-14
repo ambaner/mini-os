@@ -1,6 +1,6 @@
 # mini-os
 
-A minimalistic operating system, built from scratch — currently at **v0.7.1**.
+A minimalistic operating system, built from scratch — currently at **v0.7.2**.
 MBR reads the partition table, chain-loads a VBR which loads a stage-2 loader
 (A20 gate enablement), which loads a 16-bit kernel (KERNEL.BIN) that provides
 an INT 0x80 syscall interface, which loads the filesystem module (FS.BIN) with

@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.7.2] — 2026-05-13
+
+### Added
+- **Assert macros** (`src/include/debug.inc`) — three compile-time assertion
+  macros for fail-fast debugging in debug builds:
+  - `ASSERT reg, cond, val, "msg"` — halt if a register comparison fails
+  - `ASSERT_CF_CLEAR "msg"` — halt if carry flag is set after an operation
+  - `ASSERT_MAGIC reg, 'XXXX', "msg"` — halt if 4-byte magic at [reg] mismatches
+- **Strategic assert placements**:
+  - Kernel: after FS.BIN load (magic check), after FS init (CF check), after
+    SHELL.BIN load (magic check)
+  - FS.BIN: after directory sector read (CF check), after directory magic
+    validation
+- `ASSERT_HAS_SCREEN` opt-in define — enables screen output on assertion failure
+  for binaries that provide a `puts` subroutine (kernel has it, FS does not)
+- All assertion failures dump full register state to serial via `DBG_REGS`
+- On failure: logs to serial (+ screen if available), dumps registers, then
+  `cli; hlt` — CPU halts permanently to prevent corrupted state propagation
+
+### Changed
+- FS.BIN debug sector count: 3 → 4 (assert code adds ~150 bytes)
+- KERNEL.BIN debug sector count: 7 → 8 (assert code adds ~60 bytes)
+- Release builds unchanged — all assert macros compile to 0 bytes
+
+---
+
 ## [0.7.1] — 2026-05-13
 
 ### Added

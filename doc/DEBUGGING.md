@@ -1,7 +1,7 @@
 # Debugging Infrastructure — Design Document
 
 **Version:** 1.2
-**Status:** Partially implemented — v0.7.0 (serial, tracing, build mode), v0.7.1 (user-mode debug syscalls)
+**Status:** Partially implemented — v0.7.0 (serial, tracing, build mode), v0.7.1 (user-mode debug syscalls), v0.7.2 (assert macros)
 **Audience:** mini-os developers
 
 ---
@@ -39,7 +39,7 @@ document designs seven facilities for mini-os, ordered by impact.
 │ § 3  Serial Debug Log│ COM1 (0x3F8) output for all debug msgs  │ ✅ v0.7.0     │
 │ § 4  Syscall Tracing │ Log every INT 0x80/0x81 with names      │ ✅ v0.7.0     │
 │ § 4b User-Mode Debug │ SYS_DBG_PRINT/HEX16/REGS with tags     │ ✅ v0.7.1     │
-│ § 5  Assert Macros   │ Compile-time condition checks           │ 📋 Future     │
+│ § 5  Assert Macros   │ Compile-time condition checks           │ ✅ v0.7.2     │
 │ § 6  Fault Handlers  │ Trap CPU exceptions with state dump     │ 📋 Future     │
 │ § 7  Machine Monitor │ Wozmon-style memory examine/deposit/run │ 📋 Future     │
 │ § 8  Debug Build Mode│ %ifdef DEBUG conditional assembly       │ ✅ v0.7.0     │

@@ -35,6 +35,7 @@
 %include "memory.inc"
 %include "mnfs.inc"
 %include "syscalls.inc"
+%define ASSERT_HAS_SCREEN
 %include "debug.inc"
 
 [BITS 16]
@@ -45,7 +46,7 @@
 ; =============================================================================
 kernel_magic    db 'MNKN'           ; Magic identifier — kernel
 %ifdef DEBUG
-kernel_sectors  dw 7                ; Kernel size in sectors (debug build)
+kernel_sectors  dw 8                ; Kernel size in sectors (debug build)
 %else
 kernel_sectors  dw 6                ; Kernel size in sectors (release build)
 %endif
@@ -80,6 +81,7 @@ kernel_start:
     mov dh, 16                      ; Maximum sector count
     call load_mnex
     jc .fs_load_fail
+    ASSERT_MAGIC LOADER_OFF, 'MNFS', "FS.BIN magic invalid after load"
 
     mov si, msg_fs
     call boot_ok
@@ -89,6 +91,7 @@ kernel_start:
     ; FS.BIN's init entry point is at offset 6 (right after the 6-byte header).
     call LOADER_OFF + MNEX_HDR_SIZE
     jc .fs_init_fail
+    ASSERT_CF_CLEAR "FS.BIN init returned error"
 
     mov si, msg_fs_init
     call boot_ok
@@ -108,6 +111,7 @@ kernel_start:
     mov dh, 32                      ; Maximum sector count
     call load_mnex
     jc .shell_load_fail
+    ASSERT_MAGIC SHELL_OFF, 'MNEX', "SHELL.BIN magic invalid after load"
 
     mov si, msg_shell
     call boot_ok
@@ -1021,7 +1025,7 @@ dap_lba:
 ; PADDING — fill to sector boundary
 ; =============================================================================
 %ifdef DEBUG
-times (7 * 512) - ($ - $$) db 0
+times (8 * 512) - ($ - $$) db 0
 %else
 times (6 * 512) - ($ - $$) db 0
 %endif

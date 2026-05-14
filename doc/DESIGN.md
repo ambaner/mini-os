@@ -7,12 +7,13 @@ architecture. The project is educational — designed so anyone can clone the re
 build a bootable disk image, and run it in a Hyper-V virtual machine with no prior
 OS-development experience.
 
-The current milestone is **M6: MNFS Flat Filesystem** — the MBR chain-loads a
+The current milestone is **M7: Debugging Infrastructure** — the MBR chain-loads a
 minimal VBR, which finds and loads LOADER.BIN from the MNFS directory, LOADER
 enables A20 and finds KERNEL.BIN, the kernel installs INT 0x80 syscalls, loads
 FS.BIN (filesystem module with INT 0x81 API), and finally loads the interactive
 shell (SHELL.BIN) — all file locations discovered via directory lookup, no
-hardcoded disk offsets.
+hardcoded disk offsets.  Debug builds add serial logging, syscall tracing,
+user-mode debug syscalls, and assertion macros for fail-fast error detection.
 
 ### Design Principles
 
