@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.9.1] — 2026-05-14
+
+### Added
+- **Shell `mem` heap statistics** — the `mem` command now displays heap info
+  via `INT 0x82` (MEM_INFO + MEM_AVAIL): total, used, free, block count,
+  and largest free block.
+- **MM debug serial tracing** — debug builds log all INT 0x82 calls to COM1:
+  function number on entry, alloc success/fail with size and pointer,
+  free success/fail with pointer.
+- **Memory layout update** — `mem` command map now shows MM.BIN at 0x2800
+  and HEAP at 0x8000–0xF7FF.
+- **`ver` command** — now shows "Memory: INT 0x82 heap (30 KB)" line.
+
+### Changed
+- **SHELL.BIN** 12→13 sectors (added heap stats code + strings)
+- **DESIGN.md §2.1** — boot sequence diagram updated with MM.BIN step
+- **DESIGN.md §2.6** — kernel load sequence lists MM.BIN (steps 4-5)
+- **DESIGN.md §2.8** — new MM.BIN section with header format and link to spec
+- **README.md** — added `doc/MEMORY-MANAGER.md` link in documentation section
+- **`.gitignore`** — removed `doc/MEMORY-MANAGER.md` exclusion (now tracked)
+
+---
+
 ## [0.9.0] — 2026-05-13
 
 ### Added

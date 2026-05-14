@@ -1,6 +1,6 @@
 # mini-os
 
-A minimalistic operating system, built from scratch — currently at **v0.9.0**.
+A minimalistic operating system, built from scratch — currently at **v0.9.1**.
 MBR reads the partition table, chain-loads a VBR which loads a stage-2 loader
 (A20 gate enablement + boot menu), which loads a 16-bit kernel (KERNEL.BIN) that provides
 an INT 0x80 syscall interface, which loads the filesystem module (FS.BIN) with
@@ -90,7 +90,7 @@ VHD — no need to rebuild or swap images.
 After the boot chain completes, you'll see the shell:
 
 ```
-  MNOS v0.9.0 [Release]
+  MNOS v0.9.1 [Release]
 
 mnos:\>
 ```
@@ -264,6 +264,7 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.8.0` | **Dual-Boot Menu** | Boot menu (release/debug); unified VHD with both variants; BIB boot_mode; shell shows [Release]/[Debug] |
 | `v0.8.1` | **Stack Canary** | Debug-only stack overflow detection; canary at 0x7000 checked on every syscall; fatal halt with diagnostic on corruption |
 | `v0.9.0` | **Memory Manager** | MM.BIN heap allocator at 0x2800; INT 0x82 API (alloc/free/avail/info); 30 KB heap at 0x8000; MCB block headers; first-fit with coalescing |
+| `v0.9.1` | **mem + MM tracing** | Shell `mem` shows heap stats (total/used/free/blocks/largest); memory layout includes MM + heap; debug serial tracing for all MM calls |
 
 ```cmd
 git checkout v0.1.0      # see the project at any prior milestone

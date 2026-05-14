@@ -4,7 +4,7 @@
 
 ; --- Shell strings -----------------------------------------------------------
 msg_banner      db 13, 10
-                db '  MNOS v0.9.0 ', 0      ; Tag appended at runtime
+                db '  MNOS v0.9.1 ', 0      ; Tag appended at runtime
 
 msg_tag_release db '[Release]', 13, 10, 13, 10, 0
 msg_tag_debug   db '[Debug]', 13, 10, 13, 10, 0
@@ -32,12 +32,13 @@ str_reboot      db 'reboot', 0
 str_dir         db 'dir', 0
 
 ; --- ver command strings -----------------------------------------------------
-msg_ver_line1   db '  MNOS v0.9.0 ', 0     ; Tag appended at runtime
+msg_ver_line1   db '  MNOS v0.9.1 ', 0     ; Tag appended at runtime
 msg_ver_rest    db '  Arch:      x86 real mode (16-bit)', 13, 10
                 db '  Assembler: NASM', 13, 10
                 db '  Platform:  Hyper-V Gen 1', 13, 10
                 db '  Boot:      MBR -> VBR -> LOADER -> KERNEL -> SHELL', 13, 10
                 db '  Filesystem: MNFS v1 (flat, INT 0x81)', 13, 10
+                db '  Memory:    INT 0x82 heap (30 KB)', 13, 10
                 db '  Disk:      16 MB fixed VHD', 13, 10
                 db '  Source:    github.com/ambaner/mini-os', 13, 10, 0
 
@@ -129,13 +130,23 @@ msg_layout      db '    0x00000-0x003FF  1 KB    IVT (Interrupt Vector Table)', 
                 db '    0x00500-0x005FF  256 B   Free (BIOS scratch)', 13, 10
                 db '    0x00600-0x0060F  16 B    Boot Info Block (BIB)', 13, 10
                 db '    0x00800-0x027FF  8 KB    FS.BIN (INT 0x81)', 13, 10
+                db '    0x02800-0x02FFF  2 KB    MM.BIN (INT 0x82)', 13, 10
                 db '    0x03000-0x04FFF  8 KB    SHELL.BIN (this code)', 13, 10
                 db '    0x05000-0x06FFF  8 KB    KERNEL.BIN (INT 0x80)', 13, 10
                 db '    0x07000-0x07BFF  3 KB    Stack', 13, 10
                 db '    0x07C00-0x07FFF  1 KB    VBR (boot only)', 13, 10
+                db '    0x08000-0x0F7FF  30 KB   HEAP (managed by MM)', 13, 10
                 db '    0x0A000-0x0BFFF  8 KB    Video RAM', 13, 10
                 db '    0x0C000-0x0FFFF  16 KB   ROM area (BIOS, VGA)', 13, 10
                 db '    0x10000-0xFFFFF  960 KB  Extended (requires A20)', 13, 10, 0
+
+; --- Heap statistics strings --------------------------------------------------
+msg_heap_hdr    db 13, 10, '  Heap (INT 0x82):', 13, 10, 0
+msg_heap_total  db '    Total:    ', 0
+msg_heap_used   db '    Used:     ', 0
+msg_heap_free   db '    Free:     ', 0
+msg_heap_blocks db '    Blocks:   ', 0
+msg_heap_largest db '    Largest:  ', 0
 
 ; --- CPU information strings --------------------------------------------------
 msg_cpu_vendor  db '  Vendor:     ', 0

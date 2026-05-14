@@ -187,6 +187,80 @@ cmd_mem:
     jnz .mem_e820_loop
 
 .mem_e820_done:
+    ; --- Heap Statistics (INT 0x82 MEM_INFO + MEM_AVAIL) ----------------------
+    mov si, msg_heap_hdr
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    ; MEM_INFO: AX=total, BX=used, CX=free, DX=block count
+    mov ah, 0x04                    ; MEM_INFO
+    int 0x82
+
+    ; Save results
+    push dx                         ; block count
+    push cx                         ; free bytes
+    push bx                         ; used bytes
+    push ax                         ; total bytes
+
+    ; Print total heap size
+    mov si, msg_heap_total
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    pop dx                          ; AX was total → now in DX for print
+    mov ah, SYS_PRINT_DEC16
+    int 0x80
+    mov si, msg_bytes
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    ; Print used bytes
+    mov si, msg_heap_used
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    pop dx                          ; BX was used → now in DX for print
+    mov ah, SYS_PRINT_DEC16
+    int 0x80
+    mov si, msg_bytes
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    ; Print free bytes
+    mov si, msg_heap_free
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    pop dx                          ; CX was free → now in DX for print
+    mov ah, SYS_PRINT_DEC16
+    int 0x80
+    mov si, msg_bytes
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    ; Print block count
+    mov si, msg_heap_blocks
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    pop dx                          ; DX was block count
+    mov ah, SYS_PRINT_DEC16
+    int 0x80
+    mov si, msg_crlf
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
+    ; MEM_AVAIL: AX=largest free, DX=total free (usable bytes)
+    mov ah, 0x03                    ; MEM_AVAIL
+    int 0x82
+
+    mov si, msg_heap_largest
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    ; AX has largest free — move to DX for printing
+    mov dx, ax
+    mov ah, SYS_PRINT_DEC16
+    int 0x80
+    mov si, msg_bytes
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+
     mov si, msg_crlf
     mov ah, SYS_PRINT_STRING
     int 0x80

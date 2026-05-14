@@ -1868,8 +1868,9 @@ Measured size increase with DEBUG enabled (v0.8.0):
 |--------|---------|-------|----------|------------|
 | LOADER.BIN | 1.5 KB (3 sec) | *(shared)* | — | 8 KB |
 | FS.BIN | 1 KB (2 sec) | 2 KB (4 sec) | +1 KB (serial funcs + FS tracing + asserts) | 8 KB |
-| KERNEL.BIN | 3.5 KB (7 sec) | 5 KB (10 sec) | +1.5 KB (serial + tracing + debug syscalls) | 8 KB |
-| SHELL.BIN | 6 KB (12 sec) | 6 KB (12 sec) | 0 B | 8 KB |
+| MM.BIN | 0.5 KB (1 sec) | 1 KB (2 sec) | +0.5 KB (serial + MM call tracing) | 2 KB |
+| KERNEL.BIN | 4 KB (8 sec) | 6 KB (12 sec) | +2 KB (serial + tracing + debug syscalls) | 8 KB |
+| SHELL.BIN | 6.5 KB (13 sec) | 6.5 KB (13 sec) | 0 B | 8 KB |
 
 All binaries remain well within their 8 KB maximum allocation.  The sector
 counts in each binary's header are conditional (`%ifdef DEBUG`), so the loader

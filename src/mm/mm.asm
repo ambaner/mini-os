@@ -112,6 +112,19 @@ mm_init:
 ; All handlers return via syscall_ret_mm (sti; retf 2) to preserve CF.
 ; =============================================================================
 mm_isr:
+%ifdef DEBUG
+    ; --- Syscall trace: log function number ----------------------------------
+    push si
+    push ax
+    mov si, mm_trace_pfx            ; "[MM] AH="
+    call serial_puts
+    mov al, ah
+    call serial_hex8
+    call serial_crlf
+    pop ax
+    pop si
+%endif
+
     ; --- Validate function number -------------------------------------------
     cmp ah, MEM_SYSCALL_MAX
     ja .mm_bad_func
@@ -244,6 +257,24 @@ mm_alloc:
     pop dx
     pop di
     pop si                           ; Restore SI saved by dispatcher
+
+%ifdef DEBUG
+    ; Log: "[MM] alloc CX=size BX=ptr"
+    push si
+    push ax
+    mov si, mm_alloc_ok             ; "[MM] alloc sz="
+    call serial_puts
+    mov ax, cx
+    call serial_hex16
+    mov si, mm_ptr_eq               ; " ptr="
+    call serial_puts
+    mov ax, bx
+    call serial_hex16
+    call serial_crlf
+    pop ax
+    pop si
+%endif
+
     clc                              ; Success
     sti
     retf 2
@@ -253,6 +284,19 @@ mm_alloc:
     pop di
 .alloc_fail:
     pop si                           ; Restore SI saved by dispatcher
+
+%ifdef DEBUG
+    push si
+    push ax
+    mov si, mm_alloc_fail_msg       ; "[MM] alloc FAIL sz="
+    call serial_puts
+    mov ax, cx
+    call serial_hex16
+    call serial_crlf
+    pop ax
+    pop si
+%endif
+
     stc                              ; Out of memory
     sti
     retf 2
@@ -334,6 +378,19 @@ mm_free:
     pop ax
     pop di
     pop si                           ; Restore SI saved by dispatcher
+
+%ifdef DEBUG
+    push si
+    push ax
+    mov si, mm_free_ok              ; "[MM] free ptr="
+    call serial_puts
+    mov ax, bx
+    call serial_hex16
+    call serial_crlf
+    pop ax
+    pop si
+%endif
+
     clc                              ; Success
     sti
     retf 2
@@ -342,6 +399,19 @@ mm_free:
     pop di
 .free_fail:
     pop si                           ; Restore SI saved by dispatcher
+
+%ifdef DEBUG
+    push si
+    push ax
+    mov si, mm_free_fail_msg        ; "[MM] free FAIL ptr="
+    call serial_puts
+    mov ax, bx
+    call serial_hex16
+    call serial_crlf
+    pop ax
+    pop si
+%endif
+
     stc                              ; Error
     sti
     retf 2
@@ -452,6 +522,18 @@ mm_info:
     clc
     sti
     retf 2
+
+; =============================================================================
+; Debug trace strings (debug build only)
+; =============================================================================
+%ifdef DEBUG
+mm_trace_pfx       db '[MM] AH=', 0
+mm_alloc_ok        db '[MM] alloc sz=', 0
+mm_alloc_fail_msg  db '[MM] alloc FAIL sz=', 0
+mm_free_ok         db '[MM] free ptr=', 0
+mm_free_fail_msg   db '[MM] free FAIL ptr=', 0
+mm_ptr_eq          db ' ptr=', 0
+%endif
 
 ; =============================================================================
 ; Serial I/O functions (debug build only)

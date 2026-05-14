@@ -37,7 +37,7 @@
 ; SHELL HEADER
 ; =============================================================================
 shell_magic     db 'MNEX'           ; Magic identifier — user-mode executable
-shell_sectors   dw 12               ; Shell size in sectors (updated as needed)
+shell_sectors   dw 13               ; Shell size in sectors (updated as needed)
 
 ; =============================================================================
 ; SHELL INIT
@@ -155,6 +155,6 @@ shell_prompt:
 %include "shell_data.inc"
 
 ; =============================================================================
-; PADDING — fill to sector boundary (12 sectors = 6144 bytes)
+; PADDING — fill to sector boundary (13 sectors = 6656 bytes)
 ; =============================================================================
-times (12 * 512) - ($ - $$) db 0
+times (13 * 512) - ($ - $$) db 0
