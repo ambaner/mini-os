@@ -36,9 +36,10 @@ The build script will:
 build.bat /debug
 ```
 
-Adds serial logging, syscall tracing, and boot milestone messages via COM1
-(115200 baud, 8N1). Release builds contain zero debug bytes.
-See `doc/DEBUGGING.md` §3–4 for details.
+Adds serial logging, syscall tracing, assertion macros, and boot milestone
+messages via COM1 (115200 baud, 8N1). Assert failures dump registers to serial
+and halt the CPU. Release builds contain zero debug bytes.
+See `doc/DEBUGGING.md` §3–5 for details.
 
 To read serial output from a debug build (requires admin — manages VM lifecycle):
 
@@ -69,7 +70,7 @@ The script will prompt for a VM name and location (defaults are fine), then crea
 You should see the MBR banner and partition table info, then the shell:
 
 ```
-  MNOS v0.7.1
+  MNOS v0.7.2
 
 mnos:\>
 ```
@@ -116,7 +117,7 @@ mini-os/
 │   │   ├── syscalls.inc       # INT 0x80 syscall function numbers
 │   │   ├── load_binary.inc    # Shared MNEX binary loader subroutine
 │   │   ├── serial.inc         # COM1 serial I/O (debug build only)
-│   │   └── debug.inc          # DBG/DBG_REG/DBG_REGS macros (debug build only)
+│   │   └── debug.inc          # DBG/ASSERT macros (debug build only)
 │   ├── boot/
 │   │   ├── mbr.asm           # MBR — partition table scan + VBR chain-load
 │   │   └── vbr.asm           # VBR — finds LOADER.BIN via MNFS directory
@@ -213,6 +214,7 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.6.0` | **MNFS Filesystem** | Flat filesystem, FS.BIN module with INT 0x81 API, `dir` command, no hardcoded disk offsets |
 | `v0.7.0` | **Serial Debugging** | COM1 serial logging, debug macros, syscall/FS tracing, debug build mode (`build.bat /debug`) |
 | `v0.7.1` | **User-Mode Debug Syscalls** | SYS_DBG_PRINT/HEX16/REGS (0x20–0x22) with caller tags, shell tracing |
+| `v0.7.2` | **Assert Macros** | ASSERT, ASSERT_CF_CLEAR, ASSERT_MAGIC — halt + register dump on failure; 0 bytes in release |
 
 ```cmd
 git checkout v0.1.0      # see the project at any prior milestone

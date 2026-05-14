@@ -67,7 +67,7 @@ its output through the serial port so it doesn't interfere with screen output.
 
 ---
 
-## 3. Serial Debug Log
+## 3. Serial Debug Log *(implemented in v0.7.0)*
 
 ### 3.1 Why Serial?
 
@@ -462,7 +462,7 @@ exactly 0 bytes.
 
 ---
 
-## 4. Syscall Tracing
+## 4. Syscall Tracing *(implemented in v0.7.0; §4.7 in v0.7.1)*
 
 ### 4.1 The Problem
 
@@ -757,7 +757,7 @@ state alongside the kernel's syscall trace.
 
 ---
 
-## 5. Assert Macros
+## 5. Assert Macros *(implemented in v0.7.2)*
 
 ### 5.1 Concept
 
@@ -959,7 +959,7 @@ MNFS) that it deserves its own macro:
 
 ---
 
-## 6. Fault Handlers
+## 6. Fault Handlers *(not yet implemented)*
 
 ### 6.1 The Problem
 
@@ -1094,7 +1094,7 @@ the fault handler, the system would silently reboot or hang with no indication.
 
 ---
 
-## 7. Machine Monitor (`mnmon` Command)
+## 7. Machine Monitor (`mnmon` Command) *(not yet implemented)*
 
 ### 7.1 Heritage: The Woz Monitor
 
@@ -1768,7 +1768,7 @@ all monitor I/O is also logged to COM1 for capture.
 
 ---
 
-## 8. Debug Build Mode
+## 8. Debug Build Mode *(implemented in v0.7.0)*
 
 ### 8.1 The `%ifdef DEBUG` Pattern
 
@@ -1899,7 +1899,7 @@ offsets are transparent.
 
 ---
 
-## 9. Stack Canary
+## 9. Stack Canary *(not yet implemented)*
 
 ### 9.1 The Problem
 

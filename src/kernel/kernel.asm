@@ -451,7 +451,7 @@ syscall_handler:
 ; Output: AH = major version, AL = minor version
 ; ──────────────────────────────────────────────────────────────────────────────
 .fn_get_version:
-    mov ax, 0x0701                  ; Version 7.1 (v0.7.1)
+    mov ax, 0x0702                  ; Version 7.2 (v0.7.2)
     iret
 
 ; ─── SYS_CLEAR_SCREEN (AH=0x06) ──────────────────────────────────────────────
