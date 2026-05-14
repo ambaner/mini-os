@@ -17,9 +17,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Top 4 stack words
   - "System halted." message, then `cli; hlt`
 - Debug builds additionally log all fault info to serial (COM1)
-- Removed `#DF` (INT 0x08) handler — conflicts with IRQ0 (hardware timer) in
-  real mode; 6 vectors now trapped (#DE, #DB, #OF, #BR, #UD, #NM)
-- KERNEL.BIN release sector count: 6 → 7 (fault handler code ~400 bytes)
+- **Master PIC (8259A) remapped**: IRQ 0–7 moved from INT 0x08–0x0F to
+  INT 0x20–0x27, freeing INT 0x08 for #DF (Double Fault) exception handler.
+  BIOS ISRs are copied to the new vectors transparently.
+- 7 vectors now trapped: #DE, #DB, #OF, #BR, #UD, #NM, #DF
+- KERNEL.BIN release sector count: 6 → 7 (fault handlers + PIC remap code)
 - KERNEL.BIN debug sector count: 9 → 10 (serial output in fault_common)
 
 ---
@@ -35,7 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `#BR` (INT 0x05) — Bound Range Exceeded
   - `#UD` (INT 0x06) — Invalid Opcode
   - `#NM` (INT 0x07) — Device Not Available
-  - ~~`#DF` (INT 0x08) — Double Fault~~ *(removed in v0.7.4 — conflicts with IRQ0 timer)*
+  - `#DF` (INT 0x08) — Double Fault *(PIC remap added in v0.7.4)*
 - On exception: prints `*** CPU EXCEPTION: <name>` with faulting CS:IP to
   both serial and screen, dumps all registers to serial, then halts (`cli; hlt`)
 - `install_fault_handlers` subroutine called during kernel init (after INT 0x80)

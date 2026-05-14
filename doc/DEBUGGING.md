@@ -982,11 +982,11 @@ exceptions.  The most relevant ones for mini-os:
 | 0x05 | Bound Range Exceeded (#BR) | `BOUND` instruction fails |
 | 0x06 | Invalid Opcode (#UD) | CPU encounters undefined instruction |
 | 0x07 | Device Not Available (#NM) | FPU instruction without FPU |
+| 0x08 | Double Fault (#DF) | Exception during exception handling |
 
-> **Note:** INT 0x08 (#DF Double Fault) is NOT trapped because in real mode the
-> PIC maps IRQ0 (hardware timer) to INT 0x08.  Installing a handler there
-> clobbers the timer ISR and hangs the system.  Trapping #DF requires PIC
-> remapping (a future enhancement).
+> **PIC Remap:** In real mode, the IBM PC BIOS maps IRQ 0–7 to INT 0x08–0x0F,
+> which conflicts with CPU exceptions.  mini-os remaps the master PIC (8259A)
+> so IRQ 0–7 fire INT 0x20–0x27 instead, freeing INT 0x08 for #DF.
 
 ### 6.3 Design: Both Builds Get Fault Handlers
 
@@ -1011,7 +1011,40 @@ System halted.
 - Same screen output as release, PLUS
 - Exception name, CS:IP, and DBG_REGS macro output to COM1 serial
 
-### 6.4 Installing Fault Handlers
+### 6.4 PIC Remap (IRQ 0–7 → INT 0x20–0x27)
+
+In real mode, the IBM PC BIOS maps hardware IRQ 0–7 to INT 0x08–0x0F.  This
+conflicts with CPU exception vectors #DF (INT 0x08) through #PF (INT 0x0E).
+To safely trap #DF, mini-os remaps the master 8259A PIC during kernel init:
+
+```nasm
+; Step 1: Copy BIOS ISRs from IVT[0x08-0x0F] to IVT[0x20-0x27]
+;         (so hardware IRQs still reach their original handlers)
+mov cx, 8
+mov si, 0x08 * 4               ; Source: old IRQ vectors
+mov di, 0x20 * 4               ; Dest: new IRQ vectors
+.copy_loop:
+    movsw                      ; Copy offset
+    movsw                      ; Copy segment
+    loop .copy_loop
+
+; Step 2: Reprogram master PIC
+mov al, 0x11                   ; ICW1: init + ICW4 needed
+out 0x20, al
+mov al, 0x20                   ; ICW2: new base vector = 0x20
+out 0x21, al
+mov al, 0x04                   ; ICW3: slave on IRQ2
+out 0x21, al
+mov al, 0x01                   ; ICW4: 8086 mode
+out 0x21, al
+```
+
+After remapping:
+- Timer (IRQ0) fires INT 0x20 → BIOS timer handler (copied from old INT 0x08)
+- Keyboard (IRQ1) fires INT 0x21 → BIOS keyboard handler
+- INT 0x08 is now free for the #DF exception handler
+
+### 6.5 Installing Exception Vectors
 
 Called unconditionally during kernel init (after INT 0x80 syscall setup):
 
@@ -1021,22 +1054,20 @@ Called unconditionally during kernel init (after INT 0x80 syscall setup):
 
 install_fault_handlers:
     cli
-    push es
-    xor ax, ax
-    mov es, ax                          ; ES = 0x0000 (IVT segment)
+    ; ... PIC remap (see §6.4) ...
 
-    ; INT 0x00 — Divide Error
-    mov word [es:0x00*4],   fault_de
+    ; Install exception handlers in now-free IVT slots
+    mov word [es:0x00*4],   fault_de    ; #DE
     mov word [es:0x00*4+2], cs
-    ; ... (same pattern for 0x01, 0x04-0x07)
-    ; NOTE: INT 0x08 not installed — conflicts with IRQ0 (timer)
+    ; ... (same pattern for 0x01, 0x04-0x08)
 
+    pop ds
     pop es
     sti
     ret
 ```
 
-### 6.5 Fault Handler Implementation
+### 6.6 Fault Handler Implementation
 
 Each stub pushes its name string, then jumps to `fault_common`:
 
@@ -1064,7 +1095,7 @@ SP+16 = IP   SP+18 = CS   SP+20 = FLAGS
 SP+22 = original stack top (pre-fault)
 ```
 
-### 6.6 Example Output (Release Build)
+### 6.7 Example Output (Release Build)
 
 If the shell accidentally executes `div bx` when BX=0:
 
@@ -1839,8 +1870,8 @@ Measured size increase with DEBUG enabled (v0.7.0):
 | Binary | Release | Debug | Increase | Max region |
 |--------|---------|-------|----------|------------|
 | LOADER.BIN | 1 KB (2 sec) | 1 KB (2 sec) | 0 B (no debug instrumentation yet) | 8 KB |
-| FS.BIN | 1 KB (2 sec) | 1.5 KB (3 sec) | +512 B (serial funcs + FS tracing) | 8 KB |
-| KERNEL.BIN | 3 KB (6 sec) | 3.5 KB (7 sec) | +512 B (serial funcs + boot DBGs + syscall tracing) | 8 KB |
+| FS.BIN | 1 KB (2 sec) | 2 KB (4 sec) | +1 KB (serial funcs + FS tracing + asserts) | 8 KB |
+| KERNEL.BIN | 3.5 KB (7 sec) | 5 KB (10 sec) | +2.5 KB (serial + fault handlers + PIC remap) | 8 KB |
 | SHELL.BIN | 6 KB (12 sec) | 6 KB (12 sec) | 0 B (no debug instrumentation yet) | 8 KB |
 
 All binaries remain well within their 8 KB maximum allocation.  The sector
@@ -1856,9 +1887,9 @@ type:
 ```
 Component    Load address    Release size    Debug size     Region end
 ─────────────────────────────────────────────────────────────────────
-FS.BIN       0x0800          1 KB (2 sec)    1.5 KB (3 sec) 0x27FF (8 KB max)
+FS.BIN       0x0800          1 KB (2 sec)    2 KB (4 sec)   0x27FF (8 KB max)
 SHELL.BIN    0x3000          6 KB (12 sec)   6 KB (12 sec)  0x4FFF (8 KB max)
-KERNEL.BIN   0x5000          3 KB (6 sec)    3.5 KB (7 sec) 0x6FFF (8 KB max)
+KERNEL.BIN   0x5000          3.5 KB (7 sec)  5 KB (10 sec)  0x6FFF (8 KB max)
 ```
 
 The addresses are compile-time constants in `src/include/memory.inc` and set
@@ -1875,10 +1906,10 @@ disk offsets:
 Sector 2048:    VBR (2 sec)                      VBR (2 sec)
 Sector 2050:    MNFS directory                   MNFS directory
 Sector 2051:    LOADER.BIN (2 sec)               LOADER.BIN (2 sec)
-Sector 2053:    FS.BIN (2 sec)                   FS.BIN (3 sec)
-Sector 2055:    KERNEL.BIN (6 sec)               Sector 2056: KERNEL.BIN (7 sec)
-Sector 2061:    SHELL.BIN (12 sec)               Sector 2063: SHELL.BIN (12 sec)
-                23 total sectors                 25 total sectors
+Sector 2053:    FS.BIN (2 sec)                   FS.BIN (4 sec)
+Sector 2055:    KERNEL.BIN (7 sec)               Sector 2057: KERNEL.BIN (10 sec)
+Sector 2062:    SHELL.BIN (12 sec)               Sector 2067: SHELL.BIN (12 sec)
+                26 total sectors                 31 total sectors
 ```
 
 This is handled automatically by the build pipeline — `create-disk.ps1` reads

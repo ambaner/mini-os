@@ -216,8 +216,8 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.7.0` | **Serial Debugging** | COM1 serial logging, debug macros, syscall/FS tracing, debug build mode (`build.bat /debug`) |
 | `v0.7.1` | **User-Mode Debug Syscalls** | SYS_DBG_PRINT/HEX16/REGS (0x20–0x22) with caller tags, shell tracing |
 | `v0.7.2` | **Assert Macros** | ASSERT, ASSERT_CF_CLEAR, ASSERT_MAGIC — halt + register dump on failure; 0 bytes in release |
-| `v0.7.3` | **CPU Fault Handlers** | Trap #DE, #DB, #OF, #BR, #UD, #NM — exception name + CS:IP + register dump; debug only |
-| `v0.7.4` | **Release Fault Handlers** | Fault handlers in both builds — release shows name, CS:IP, registers, FLAGS, stack top on screen; halts cleanly. Removed #DF (IRQ0 conflict). |
+| `v0.7.3` | **CPU Fault Handlers** | Trap #DE, #DB, #OF, #BR, #UD, #NM, #DF — exception name + CS:IP + register dump; debug only |
+| `v0.7.4` | **Release Fault Handlers** | Fault handlers in both builds; PIC remapped (IRQ→0x20); full crash screen with registers, FLAGS, stack; 7 vectors |
 
 ```cmd
 git checkout v0.1.0      # see the project at any prior milestone

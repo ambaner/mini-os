@@ -13,7 +13,9 @@ enables A20 and finds KERNEL.BIN, the kernel installs INT 0x80 syscalls, loads
 FS.BIN (filesystem module with INT 0x81 API), and finally loads the interactive
 shell (SHELL.BIN) — all file locations discovered via directory lookup, no
 hardcoded disk offsets.  Debug builds add serial logging, syscall tracing,
-user-mode debug syscalls, and assertion macros for fail-fast error detection.
+user-mode debug syscalls, assertion macros, and CPU fault handlers.  Fault
+handlers are present in both release and debug builds (PIC remapped to avoid
+IRQ/exception vector conflicts).
 
 ### Design Principles
 
@@ -140,7 +142,7 @@ user-mode debug syscalls, and assertion macros for fail-fast error detection.
 | `0x0000:0x0600` – `0x0000:0x060F` | **Boot Info Block (BIB)** — shared parameters |
 | `0x0000:0x0800` – `0x0000:0x27FF` | **FS.BIN** (8 KB max, loaded by kernel; replaces LOADER at runtime) |
 | `0x0000:0x3000` – `0x0000:0x4FFF` | **SHELL.BIN** (8 KB max, loaded by kernel) |
-| `0x0000:0x5000` – `0x0000:0x6FFF` | **KERNEL.BIN** (8 KB max, 6 sectors used) |
+| `0x0000:0x5000` – `0x0000:0x6FFF` | **KERNEL.BIN** (8 KB max, 7 sectors used) |
 | `0x0000:0x7C00` – `0x0000:0x7FFF` | **VBR** (2 sectors, boot-time only) |
 | `0x0000:0x7BFE` ↓ | Stack (grows downward from 0x7C00) |
 | `0x0000:0x7E00` – `0x0000:0x9DFF` | VBR load buffer (MBR uses this temporarily) |
@@ -284,7 +286,7 @@ Sector 2050             → MNFS directory table (1 sector, up to 15 entries)
 Sector 2051+            → Files packed contiguously:
                             LOADER.BIN (2 sectors)
                             FS.BIN     (2 sectors)
-                            KERNEL.BIN (6 sectors)
+                            KERNEL.BIN (7 sectors)
                             SHELL.BIN  (12 sectors)
 Remaining sectors       → Zeroed (available for future files)
 ```
@@ -653,7 +655,7 @@ mini-os/
 │       ├── vbr.bin               Assembled VBR binary (1 KB)
 │       ├── loader.bin            Assembled LOADER binary (1 KB)
 │       ├── fs.bin                Assembled FS binary (1 KB)
-│       ├── kernel.bin            Assembled KERNEL binary (3 KB)
+│       ├── kernel.bin            Assembled KERNEL binary (3.5 KB)
 │       ├── shell.bin             Assembled SHELL binary (6 KB)
 │       ├── mini-os.img           Partitioned raw disk image
 │       └── mini-os.vhd           Bootable VHD
@@ -683,7 +685,7 @@ This document will be updated as the project evolves. Planned milestones:
 | **M4** ✅ | Three-stage boot chain (VBR → LOADER.BIN → SHELL.BIN), Boot Info Block |
 | **M5** ✅ | 16-bit kernel + INT 0x80 syscall interface, shell as user-mode executable |
 | **M6** ✅ | MNFS flat filesystem, FS.BIN module with INT 0x81 API, dir command, no hardcoded offsets |
-| **M7** ✅ | Serial debugging (COM1, debug macros, syscall tracing, debug builds), user-mode debug syscalls |
+| **M7** ✅ | Serial debugging (COM1, debug macros, syscall tracing, debug builds), user-mode debug syscalls, assert macros, CPU fault handlers (PIC remap, 7 vectors, both builds) |
 | **M8** | Switch to 32-bit protected mode (see [MEMORY-LAYOUT.md §8](MEMORY-LAYOUT.md#8-future-beyond-1-mb)) |
 | **M9** | Basic kernel with screen output (direct VGA framebuffer) |
 | **M10** | Simple memory manager (design pending) |

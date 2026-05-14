@@ -69,7 +69,7 @@ kernel_start:
 
     ; --- Install CPU exception fault handlers --------------------------------
     call install_fault_handlers
-    DBG "KERNEL: fault handlers installed (INT 0x00-0x07)"
+    DBG "KERNEL: PIC remapped, fault handlers installed (INT 0x00-0x08)"
 
     ; --- Load FS.BIN (filesystem module) at 0x0800 ---------------------------
     ; FS.BIN replaces LOADER.BIN in memory (LOADER's job is done).
@@ -1044,16 +1044,65 @@ dap_lba:
 ; =============================================================================
 
 ; =============================================================================
-; install_fault_handlers — Install CPU exception handlers into IVT vectors 0-8
+; install_fault_handlers — Install CPU exception handlers into IVT vectors
+;
+; Also remaps the master PIC (8259A) so hardware IRQ 0-7 fire INT 0x20-0x27
+; instead of INT 0x08-0x0F.  This frees INT 0x08 for the #DF exception handler
+; (which otherwise conflicts with the hardware timer at IRQ0).
 ;
 ; Must be called with interrupts safe to disable (early kernel init).
 ; =============================================================================
 install_fault_handlers:
     cli
     push es
+    push ds
 
     xor ax, ax
     mov es, ax                          ; ES = 0x0000 (IVT segment)
+    mov ds, ax                          ; DS = 0x0000 (for reading IVT too)
+
+    ; ─── Step 1: Relocate BIOS IRQ handlers from IVT[0x08-0x0F] to [0x20-0x27]
+    ; Copy 8 IVT entries (4 bytes each = 32 bytes) from 0x08*4 to 0x20*4
+    mov cx, 8
+    mov si, 0x08 * 4                    ; Source: IVT[0x08] = offset 0x20
+    mov di, 0x20 * 4                    ; Dest:   IVT[0x20] = offset 0x80
+.copy_irq_vectors:
+    mov ax, [ds:si]                     ; Offset of BIOS ISR
+    mov [es:di], ax
+    mov ax, [ds:si + 2]                 ; Segment of BIOS ISR
+    mov [es:di + 2], ax
+    add si, 4
+    add di, 4
+    dec cx
+    jnz .copy_irq_vectors
+
+    ; ─── Step 2: Reprogram master PIC (8259A) to use base vector 0x20 ────────
+    ; ICW1: Initialize + ICW4 needed
+    mov al, 0x11
+    out 0x20, al
+    ; Small I/O delay (let PIC process)
+    jmp short $+2
+    jmp short $+2
+
+    ; ICW2: New base interrupt vector = 0x20
+    mov al, 0x20
+    out 0x21, al
+    jmp short $+2
+    jmp short $+2
+
+    ; ICW3: Slave PIC on IRQ2 (bit 2)
+    mov al, 0x04
+    out 0x21, al
+    jmp short $+2
+    jmp short $+2
+
+    ; ICW4: 8086 mode, normal EOI
+    mov al, 0x01
+    out 0x21, al
+    jmp short $+2
+    jmp short $+2
+
+    ; ─── Step 3: Install CPU exception handlers ───────────────────────────────
 
     ; INT 0x00 — Divide Error (#DE)
     mov word [es:0x00*4],   fault_de
@@ -1079,10 +1128,11 @@ install_fault_handlers:
     mov word [es:0x07*4],   fault_nm
     mov word [es:0x07*4+2], cs
 
-    ; NOTE: INT 0x08 (#DF Double Fault) is NOT installed because in real mode
-    ; the PIC maps IRQ0 (hardware timer) to INT 0x08. Installing a handler
-    ; here would clobber the timer ISR and hang the system.
+    ; INT 0x08 — Double Fault (#DF) — safe now that IRQ0 is at INT 0x20
+    mov word [es:0x08*4],   fault_df
+    mov word [es:0x08*4+2], cs
 
+    pop ds
     pop es
     sti
     ret
@@ -1379,7 +1429,10 @@ fault_nm:                               ; INT 0x07 — Device Not Available
     jmp fault_common
 .nm_name: db '#NM No Device', 0
 
-; NOTE: No fault_df stub — INT 0x08 conflicts with IRQ0 (timer) in real mode.
+fault_df:                               ; INT 0x08 — Double Fault
+    push word .df_name
+    jmp fault_common
+.df_name: db '#DF Double Fault', 0
 
 ; =============================================================================
 ; Serial I/O functions (debug build only — placed after kernel code to avoid

@@ -95,8 +95,8 @@ Address       Size      Contents                 Lifetime
                                                     via INT 0x80 syscalls
 
 0x0000:0x5000  8192 B   KERNEL.BIN                Permanent (OS runtime)
-               (8 KB     (6 sectors = 3 KB used,   Loaded by LOADER, installs
-                max)      5 KB growth room)         INT 0x80 syscall handler,
+               (8 KB     (7 sectors = 3.5 KB used, Loaded by LOADER, installs
+                max)      4.5 KB growth room)       INT 0x80 syscall handler,
                                                     loads FS.BIN + SHELL
 
 0x0000:0x7000  3072 B   Stack zone (grows ↓)      Active (see §3)
@@ -168,7 +168,7 @@ BIOS interrupts (video, keyboard, disk, memory, CPUID, BDA access, etc.),
 find_file.inc for MNFS directory lookup, loads FS.BIN and SHELL.BIN from disk,
 version info, and utility functions.
 
-**Current size**: 6 sectors (3072 bytes), ending at 0x5BFF.  **Maximum**:
+**Current size**: 7 sectors (3584 bytes), ending at 0x5DFF.  **Maximum**:
 16 sectors (8192 bytes), ending at 0x6FFF.
 
 **Lifetime**: Permanent — the kernel must remain resident for the entire OS
@@ -557,8 +557,8 @@ prevents a larger loader from colliding with the shell.
 │ 0x2800   │ 0x2FFF   │ (gap / buffer zone)  │ 2 KB       │
 │ 0x3000   │ 0x47FF   │ SHELL.BIN (12 sec)   │ 6 KB       │
 │ 0x4800   │ 0x4FFF   │ (shell growth)       │ 2 KB       │
-│ 0x5000   │ 0x5BFF   │ KERNEL.BIN (6 sec)   │ 3 KB       │
-│ 0x5C00   │ 0x6FFF   │ (kernel growth)      │ 5 KB       │
+│ 0x5000   │ 0x5DFF   │ KERNEL.BIN (7 sec)   │ 3.5 KB     │
+│ 0x5E00   │ 0x6FFF   │ (kernel growth)      │ 4.5 KB     │
 │ 0x7000   │ 0x7BFF   │ Stack zone           │ 3 KB       │
 │ 0x7C00   │ 0x7FFF   │ VBR (boot-time)      │ 1 KB       │
 │ 0x7E00   │ 0x9DFF   │ VBR staging (temp)   │ 8 KB       │
@@ -584,9 +584,9 @@ pre-allocated region.
 
 | Component | Address | Release | Debug | Growth room left |
 |-----------|---------|---------|-------|-----------------|
-| FS.BIN | 0x0800 | 1 KB (2 sec) | 1.5 KB (3 sec) | 6.5 KB |
+| FS.BIN | 0x0800 | 1 KB (2 sec) | 2 KB (4 sec) | 6 KB |
 | SHELL.BIN | 0x3000 | 6 KB (12 sec) | 6 KB (12 sec) | 2 KB |
-| KERNEL.BIN | 0x5000 | 3 KB (6 sec) | 3.5 KB (7 sec) | 4.5 KB |
+| KERNEL.BIN | 0x5000 | 3.5 KB (7 sec) | 5 KB (10 sec) | 4.5 KB |
 
 Each binary's header contains a conditional sector count (`%ifdef DEBUG`),
 so the loader reads the correct size at runtime.  No code changes are needed
