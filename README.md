@@ -1,6 +1,6 @@
 # mini-os
 
-A minimalistic operating system, built from scratch — currently at **v0.8.0**.
+A minimalistic operating system, built from scratch — currently at **v0.8.1**.
 MBR reads the partition table, chain-loads a VBR which loads a stage-2 loader
 (A20 gate enablement + boot menu), which loads a 16-bit kernel (KERNEL.BIN) that provides
 an INT 0x80 syscall interface, which loads the filesystem module (FS.BIN) with
@@ -89,7 +89,7 @@ VHD — no need to rebuild or swap images.
 After the boot chain completes, you'll see the shell:
 
 ```
-  MNOS v0.8.0 [Release]
+  MNOS v0.8.1 [Release]
 
 mnos:\>
 ```
@@ -122,54 +122,71 @@ mini-os/
 │       └── release.yml       # CD — package & release on version tags
 ├── doc/
 │   ├── DESIGN.md             # Architecture & design document
+│   ├── DEBUGGING.md          # Debug infrastructure (serial, asserts, faults, canary)
 │   ├── LOADER.md             # Stage-2 loader design (A20, boot menu)
-│   ├── BOOT-LAYOUT-RATIONALE.md  # Boot chain design rationale (DOS/Windows/Linux comparisons)
+│   ├── FILESYSTEM.md         # MNFS specification & FS.BIN architecture
+│   ├── BOOT-LAYOUT-RATIONALE.md  # Boot chain rationale (DOS/Windows/Linux comparisons)
 │   ├── MEMORY-LAYOUT.md      # Memory map, stack analysis, protected-mode roadmap
+│   ├── MEMORY-MANAGER.md     # Memory manager design (future)
 │   ├── CPU-MODES-AND-TRANSITIONS.md  # 16→32→64-bit journey, BIOS vs UEFI
-│   ├── MNEX-BINARY-FORMAT.md    # Custom binary format spec, toolchain, build pipeline
-│   └── SYSTEM-CALLS.md         # User↔kernel boundary, IVT/IDT/SYSCALL mechanisms
+│   ├── MNEX-BINARY-FORMAT.md # Custom binary format spec, toolchain, build pipeline
+│   └── SYSTEM-CALLS.md       # User↔kernel boundary, IVT/IDT/SYSCALL mechanisms
 ├── src/
 │   ├── include/               # Shared constants & subroutines (%include)
 │   │   ├── bib.inc            # Boot Info Block field addresses
-│   │   ├── memory.inc         # Component load addresses
+│   │   ├── memory.inc         # Component load addresses + stack canary constants
 │   │   ├── mnfs.inc           # MNFS filesystem constants & INT 0x81 numbers
-│   │   ├── find_file.inc      # Bootstrap MNFS directory lookup subroutine
 │   │   ├── syscalls.inc       # INT 0x80 syscall function numbers
+│   │   ├── find_file.inc      # Bootstrap MNFS directory lookup subroutine
 │   │   ├── load_binary.inc    # Shared MNEX binary loader subroutine
+│   │   ├── boot_msg.inc       # Boot progress messages ([  OK  ] / [FAIL])
 │   │   ├── serial.inc         # COM1 serial I/O (debug build only)
 │   │   └── debug.inc          # DBG/ASSERT macros (debug build only)
 │   ├── boot/
-│   │   ├── mbr.asm           # MBR — partition table scan + VBR chain-load
-│   │   └── vbr.asm           # VBR — finds LOADER.BIN via MNFS directory
+│   │   ├── mbr.asm            # MBR — partition table scan + VBR chain-load
+│   │   └── vbr.asm            # VBR — finds LOADER.BIN via MNFS directory
 │   ├── loader/
-│   │   └── loader.asm        # Stage-2 loader — A20 gate, finds KERNEL.BIN via MNFS
+│   │   └── loader.asm         # Stage-2 loader — A20 gate, boot menu, loads KERNEL
 │   ├── kernel/
-│   │   └── kernel.asm        # 16-bit kernel — INT 0x80 syscalls, loads FS.BIN + SHELL
+│   │   ├── kernel.asm         # 16-bit kernel — INT 0x80 syscalls, loads FS + SHELL
+│   │   ├── kernel_syscall.inc # Syscall dispatcher + 27 handlers (jump table)
+│   │   ├── kernel_data.inc    # Kernel string constants, filenames, DAP
+│   │   ├── kernel_fault.inc   # CPU exception fault handlers + PIC remap
+│   │   └── kernel_stack.inc   # Stack canary (debug-only overflow detection)
 │   ├── fs/
-│   │   └── fs.asm            # Filesystem module — INT 0x81 API, MNFS directory cache
+│   │   └── fs.asm             # Filesystem module — INT 0x81 API, MNFS directory cache
 │   └── shell/
-│       └── shell.asm         # Interactive shell (user-mode, dir/sysinfo/mem/ver/help/cls/reboot)
+│       ├── shell.asm          # Shell entry point — init, command loop, dispatch
+│       ├── shell_cmd_simple.inc   # Simple commands (ver, help, cls, reboot)
+│       ├── shell_cmd_dir.inc      # dir command (MNFS directory listing)
+│       ├── shell_cmd_mem.inc      # mem command (memory diagnostics)
+│       ├── shell_cmd_sysinfo.inc  # sysinfo command (5-page hardware info)
+│       ├── shell_readline.inc     # Input handling + utility subroutines
+│       └── shell_data.inc         # String constants + runtime data buffers
 ├── tools/
-│   ├── build.ps1             # Build logic (called by build.bat)
-│   ├── create-disk.ps1       # Partitioned raw disk image creator
-│   ├── create-vhd.bat        # VHD tool — batch wrapper
-│   ├── create-vhd.ps1        # Raw image → VHD converter (pure PowerShell)
-│   ├── setup-vm.ps1          # Hyper-V VM create/update logic
-│   ├── read-serial.ps1       # Read COM1 debug output from running VM
-│   └── nasm/                 # Auto-downloaded NASM (gitignored)
-├── build/                    # Build output (gitignored)
+│   ├── build.ps1              # Build logic — assembles 9 binaries, creates VHD
+│   ├── create-disk.ps1        # Partitioned raw disk image creator (7 MNFS files)
+│   ├── create-vhd.bat         # VHD tool — batch wrapper
+│   ├── create-vhd.ps1         # Raw image → VHD converter (pure PowerShell)
+│   ├── setup-vm.ps1           # Hyper-V VM create/update logic
+│   ├── read-serial.ps1        # Read COM1 debug output from running VM
+│   └── nasm/                  # Auto-downloaded NASM (gitignored)
+├── build/                     # Build output (gitignored)
 │   └── boot/
-│       ├── mbr.bin
-│       ├── vbr.bin
-│       ├── loader.bin
-│       ├── fs.bin
-│       ├── kernel.bin
-│       ├── shell.bin
-│       ├── mini-os.img
-│       └── mini-os.vhd
-├── build.bat                 # Build entry point
-├── read-serial.bat           # Read serial debug output from VM
-├── setup-vm.bat              # Hyper-V VM setup entry point
+│       ├── mbr.bin            # MBR binary
+│       ├── vbr.bin            # VBR binary (2 sectors)
+│       ├── loader.bin         # LOADER (3 sectors, shared)
+│       ├── fs.bin             # FS — release (2 sectors)
+│       ├── kernel.bin         # KERNEL — release (7 sectors)
+│       ├── shell.bin          # SHELL — release (12 sectors)
+│       ├── fsd.bin            # FS — debug (4 sectors)
+│       ├── kerneld.bin        # KERNEL — debug (11 sectors)
+│       ├── shelld.bin         # SHELL — debug (12 sectors)
+│       ├── mini-os.img        # 16 MB raw disk image
+│       └── mini-os.vhd        # Bootable VHD (single unified image)
+├── build.bat                  # Build entry point
+├── read-serial.bat            # Read serial debug output from VM
+├── setup-vm.bat               # Hyper-V VM setup entry point
 ├── CHANGELOG.md
 ├── CODE_OF_CONDUCT.md
 ├── CONTRIBUTING.md
@@ -210,10 +227,9 @@ Additional deep-dive documents:
   (64-bit). Includes complete handler code, Windows/Linux comparisons, and the
   mini-os syscall table.
 
-- **[doc/DEBUGGING.md](doc/DEBUGGING.md)** — Serial logging (COM1), syscall tracing,
-  user-mode debug syscalls (SYS_DBG_PRINT/HEX16/REGS with caller tags),
-  debug build mode, and planned facilities (mnmon, assertions).
-  Covers Hyper-V COM port setup and build integration.
+- **[doc/DEBUGGING.md](doc/DEBUGGING.md)** — Debug infrastructure: serial logging (COM1),
+  syscall tracing, user-mode debug syscalls, assertion macros, CPU fault handlers,
+  stack canary, debug build mode.  Covers Hyper-V COM port setup and build integration.
 
 ## Version History
 
@@ -239,6 +255,7 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.7.4` | **Release Fault Handlers** | Fault handlers in both builds; PIC remapped (IRQ→0x20); full crash screen with registers, FLAGS, stack; 7 vectors |
 | `v0.7.5` | **Source File Split** | Kernel & shell split into focused include files; binary-identical output; build script adds per-module include paths |
 | `v0.8.0` | **Dual-Boot Menu** | Boot menu (release/debug); unified VHD with both variants; BIB boot_mode; shell shows [Release]/[Debug] |
+| `v0.8.1` | **Stack Canary** | Debug-only stack overflow detection; canary at 0x7000 checked on every syscall; fatal halt with diagnostic on corruption |
 
 ```cmd
 git checkout v0.1.0      # see the project at any prior milestone

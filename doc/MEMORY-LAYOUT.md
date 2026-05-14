@@ -130,7 +130,8 @@ the BIOS Data Area, in a region that the BIOS guarantees is free.
 | 0x0600 | 1 B | `boot_drive` | VBR | LOADER, KERNEL |
 | 0x0601 | 1 B | `a20_status` | LOADER | KERNEL, SHELL (via syscall) |
 | 0x0602 | 4 B | `part_lba` | VBR | LOADER, KERNEL (computes absolute LBAs) |
-| 0x0606 | 10 B | *reserved* | — | Future expansion |
+| 0x0606 | 1 B | `boot_mode` | LOADER | KERNEL, SHELL (0=release, 1=debug) |
+| 0x0607 | 9 B | *reserved* | — | Future expansion |
 
 **Why 0x0600?**  This address sits in the "free area" between the BDA (ends at
 0x04FF) and the traditional boot sector load point (0x7C00).  The real-mode
@@ -294,6 +295,32 @@ The stack is set once by the MBR and never moved.  All three boot stages
 - No stage needs a different stack size.
 - Relocating the stack mid-boot risks losing return addresses.
 - A fixed stack simplifies debugging (SP is always relative to 0x7C00).
+
+### 3.5 Stack Canary (debug builds only)
+
+In debug builds, the kernel plants a 4-byte sentinel at the stack floor:
+
+```
+0x7000  ┌──────────────┐
+        │ 0xDEAD       │  ← canary word 1 (first to be overwritten)
+0x7002  ├──────────────┤
+        │ 0xDEAD       │  ← canary word 2 (redundancy)
+0x7004  ├──────────────┤
+        │              │
+        │  Usable      │  ← SP grows downward from 0x7BFF
+        │  stack zone  │     ~3068 bytes of safe stack space
+        │              │
+0x7C00  └──────────────┘  ← Initial SP
+```
+
+`canary_init` writes `0xDEAD` to both words at kernel boot.  `canary_check`
+verifies them on every syscall entry (INT 0x80).  If either word is corrupted,
+the handler prints a fatal message to serial + screen and halts.  The canary
+uses the `SS:` segment override so it works regardless of DS.  In release
+builds, the canary code expands to 0 bytes — the addresses at 0x7000 are
+simply unused.
+
+See `doc/DEBUGGING.md` §9 and `src/kernel/kernel_stack.inc` for implementation.
 
 ---
 

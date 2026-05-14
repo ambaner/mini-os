@@ -552,7 +552,7 @@ is PowerShell + NASM.
      │
      ├─ 6. Debug variants (-dDEBUG):
      │      ├─ nasm -dDEBUG ... -o build/boot/fsd.bin       (4 sectors)
-     │      ├─ nasm -dDEBUG ... -o build/boot/kerneld.bin   (10 sectors)
+     │      ├─ nasm -dDEBUG ... -o build/boot/kerneld.bin   (11 sectors)
      │      └─ nasm -dDEBUG ... -o build/boot/shelld.bin    (12 sectors)
      │
      ├─ 7. tools/create-disk.ps1 — build raw disk image (7 MNFS files)
@@ -574,9 +574,9 @@ is PowerShell + NASM.
 | `build/boot/kernel.bin` | 3.5 KB (7 × 512) | KERNEL.BIN with INT 0x80 + file loading (release) |
 | `build/boot/shell.bin` | 6 KB (12 × 512) | SHELL.BIN with all commands (release) |
 | `build/boot/fsd.bin` | 2 KB (4 × 512) | FSD.BIN — debug FS with serial logging |
-| `build/boot/kerneld.bin` | 5 KB (10 × 512) | KERNELD.BIN — debug kernel with tracing |
+| `build/boot/kerneld.bin` | 5.5 KB (11 × 512) | KERNELD.BIN — debug kernel with tracing + canary |
 | `build/boot/shelld.bin` | 6 KB (12 × 512) | SHELLD.BIN — debug shell |
-| `build/boot/mini-os.img` | 16 MB | Partitioned raw disk image (7 MNFS files) |
+| `build/boot/mini-os.img` | 16 MB | Partitioned raw disk image (7 MNFS files, 52 data sectors) |
 | `build/boot/mini-os.vhd` | 16 MB + 512 B | Bootable fixed VHD |
 
 ### 6.3 Clean Build
@@ -648,7 +648,8 @@ mini-os/
 │   │   ├── kernel.asm            KERNEL — manifest (entry point + includes)
 │   │   ├── kernel_syscall.inc    INT 0x80 dispatcher + all syscall handlers
 │   │   ├── kernel_data.inc       Boot messages, filenames, DAP
-│   │   └── kernel_fault.inc      PIC remap + CPU exception handlers
+│   │   ├── kernel_fault.inc      PIC remap + CPU exception handlers
+│   │   └── kernel_stack.inc      Stack canary (init, check, macros)
 │   ├── fs/
 │   │   └── fs.asm                FS — INT 0x81 filesystem API + dir cache
 │   └── shell/

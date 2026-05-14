@@ -1,4 +1,12 @@
 syscall_handler:
+    ; --- Stack canary check (debug only) -------------------------------------
+    ; Verify the canary at 0x7000 is intact before dispatching.  This catches
+    ; stack overflows that occurred during the previous syscall handler or in
+    ; user-mode code between syscalls.  CANARY_CHECK preserves all registers
+    ; and FLAGS, so AH (function number) and all arguments are untouched.
+    ; In release builds, CANARY_CHECK expands to nothing (0 bytes).
+    CANARY_CHECK
+
     mov [cs:.sc_temp], bx           ; Save BX in kernel data area
 
 %ifdef DEBUG
@@ -256,7 +264,7 @@ syscall_handler:
 ; Output: AH = major version, AL = minor version
 ; ──────────────────────────────────────────────────────────────────────────────
 .fn_get_version:
-    mov ax, 0x0800                  ; Version 8.0 (v0.8.0)
+    mov ax, 0x0801                  ; Version 8.1 (v0.8.1)
     iret
 
 ; ─── SYS_CLEAR_SCREEN (AH=0x06) ──────────────────────────────────────────────

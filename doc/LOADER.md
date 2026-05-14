@@ -293,10 +293,10 @@ MNFS Directory (partition sector 2):
   2      KERNEL  BIN   SYS     8       7         Kernel (release, 3.5 KB)
   3      SHELL   BIN   EXEC    15      12        Shell (release, 6 KB)
   4      FSD     BIN   SYS     27      4         Filesystem (debug)
-  5      KERNELD BIN   SYS     31      10        Kernel (debug, 5 KB)
-  6      SHELLD  BIN   EXEC    41      12        Shell (debug, 6 KB)
+  5      KERNELD BIN   SYS     31      11        Kernel (debug, 5.5 KB)
+  6      SHELLD  BIN   EXEC    42      12        Shell (debug, 6 KB)
 
-  Total: 7 entries (max 15), 50 data sectors
+  Total: 7 entries (max 15), 52 data sectors
 ```
 
 *(Exact sector offsets will vary as files are packed contiguously by

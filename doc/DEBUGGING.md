@@ -1,7 +1,7 @@
 # Debugging Infrastructure — Design Document
 
-**Version:** 1.2
-**Status:** Partially implemented — v0.7.0 (serial, tracing, build mode), v0.7.1 (user-mode debug syscalls), v0.7.2 (assert macros), v0.7.3 (fault handlers)
+**Version:** 1.3
+**Status:** Partially implemented — v0.7.0 (serial, tracing, build mode), v0.7.1 (user-mode debug syscalls), v0.7.2 (assert macros), v0.7.4 (fault handlers), v0.8.1 (stack canary)
 **Audience:** mini-os developers
 
 ---
@@ -43,7 +43,7 @@ document designs seven facilities for mini-os, ordered by impact.
 │ § 6  Fault Handlers  │ Trap CPU exceptions with state dump     │ ✅ v0.7.4     │
 │ § 7  Machine Monitor │ Wozmon-style memory examine/deposit/run │ 📋 Future     │
 │ § 8  Debug Build Mode│ %ifdef DEBUG conditional assembly       │ ✅ v0.7.0     │
-│ § 9  Stack Canary    │ Corruption sentinel at stack floor      │ 📋 Future     │
+│ § 9  Stack Canary    │ Corruption sentinel at stack floor      │ ✅ v0.8.1     │
 └──────────────────────┴──────────────────────────────────────────┴───────────────┘
 ```
 
@@ -1898,7 +1898,7 @@ As of v0.8.0, **both release and debug variants are on the same disk**.  The
 MNFS directory has 7 entries — the boot menu selects which set to load:
 
 ```
-Unified disk layout (v0.8.0)
+Unified disk layout (v0.8.1)
 Sector 2048:    VBR (2 sec)
 Sector 2050:    MNFS directory (7 files)
 Sector 2051:    LOADER.BIN  (3 sec)    — shared
@@ -1906,9 +1906,9 @@ Sector 2054:    FS.BIN      (2 sec)    — release
 Sector 2056:    KERNEL.BIN  (7 sec)    — release
 Sector 2063:    SHELL.BIN   (12 sec)   — release
 Sector 2075:    FSD.BIN     (4 sec)    — debug
-Sector 2079:    KERNELD.BIN (10 sec)   — debug
-Sector 2089:    SHELLD.BIN  (12 sec)   — debug
-                52 total sectors (51 data + 1 directory)
+Sector 2079:    KERNELD.BIN (11 sec)   — debug
+Sector 2090:    SHELLD.BIN  (12 sec)   — debug
+                53 total sectors (52 data + 1 directory)
 ```
 
 This is handled automatically by the build pipeline — `create-disk.ps1` reads
@@ -1918,7 +1918,7 @@ offsets are transparent.
 
 ---
 
-## 9. Stack Canary *(not yet implemented)*
+## 9. Stack Canary *(implemented in v0.8.1)*
 
 ### 9.1 The Problem
 
@@ -1933,76 +1933,110 @@ A **stack canary** is a known magic value written to the bottom of the stack
 zone.  Periodically, we check if it's been overwritten:
 
 ```nasm
-STACK_CANARY_ADDR   equ 0x7000         ; Bottom of stack zone
-STACK_CANARY_VALUE  equ 0xDEAD         ; Arbitrary recognizable value
+; Constants (in memory.inc):
+STACK_CANARY_ADDR  equ 0x7000        ; Linear address of canary (stack floor)
+STACK_CANARY_VALUE equ 0xDEAD        ; Sentinel value (written as two words)
+STACK_CANARY_SIZE  equ 4             ; Total canary size in bytes
 
-; ─── canary_init — Plant the stack canary ────────────────────────
-;   Call once during kernel init.
+; Implementation (in kernel_stack.inc):
 %ifdef DEBUG
 canary_init:
-    mov word [STACK_CANARY_ADDR], STACK_CANARY_VALUE
-    mov word [STACK_CANARY_ADDR + 2], STACK_CANARY_VALUE
+    mov word [ss:STACK_CANARY_ADDR], STACK_CANARY_VALUE
+    mov word [ss:STACK_CANARY_ADDR + 2], STACK_CANARY_VALUE
+    DBG "KERNEL: stack canary planted at 0x7000 (0xDEAD 0xDEAD)"
     ret
 
-; ─── canary_check — Verify the stack canary is intact ────────────
-;   Call periodically (e.g., on every syscall return, or in shell loop).
-;   If the canary is dead, the stack has overflowed.
 canary_check:
-    cmp word [STACK_CANARY_ADDR], STACK_CANARY_VALUE
+    pushf                               ; Preserve FLAGS (caller may need CF)
+    cmp word [ss:STACK_CANARY_ADDR], STACK_CANARY_VALUE
     jne .canary_dead
-    cmp word [STACK_CANARY_ADDR + 2], STACK_CANARY_VALUE
+    cmp word [ss:STACK_CANARY_ADDR + 2], STACK_CANARY_VALUE
     jne .canary_dead
+    popf                                ; Canary intact — restore FLAGS
     ret
 
 .canary_dead:
-    ; Stack overflow detected!
+    popf                                ; Discard saved FLAGS
     push si
     mov si, .canary_msg
-    call serial_puts
-    call puts                           ; Also to screen
+    call serial_puts                    ; Log to serial (most reliable)
     pop si
-    DBG_REGS
+    DBG_REGS                            ; Dump registers to serial
+    push si
+    mov si, .canary_msg
+    call puts                           ; Also show on screen
+    pop si
     cli
 .canary_halt:
     hlt
     jmp .canary_halt
 
-.canary_msg: db 13, 10, '*** STACK OVERFLOW: canary at 0x7000 destroyed!', 13, 10, 0
+.canary_msg:
+    db 13, 10, '*** STACK OVERFLOW: canary at 0x7000 destroyed! ***', 13, 10
+    db '    Stack grew past safe limit (0x7004).', 13, 10, 0
+%endif
+
+; Call-site macros (expand to nothing in release):
+%ifdef DEBUG
+    %define CANARY_INIT  call canary_init
+    %define CANARY_CHECK call canary_check
+%else
+    %define CANARY_INIT
+    %define CANARY_CHECK
 %endif
 ```
 
+**Key design decisions:**
+
+- **SS: segment override** — all canary reads/writes use `[ss:0x7000]` instead
+  of `[0x7000]`.  In real mode, `[addr]` uses DS by default, but DS may be
+  changed by some components.  SS is always 0x0000 (set by MBR, never moved).
+- **FLAGS preservation** — `canary_check` uses `pushf`/`popf` so the caller's
+  CF/ZF/etc. survive the check.  This is critical in the syscall handler where
+  CF carries return status.
+- **Register preservation** — on success, `canary_check` clobbers nothing.
+  On failure, it doesn't matter (we halt).
+- **Call-site macros** — `CANARY_INIT` and `CANARY_CHECK` eliminate the need for
+  `%ifdef DEBUG` guards at every call site.  In release builds, they expand to
+  exactly 0 bytes.
+
 ### 9.3 When to Check
 
-The canary is checked at low-overhead points:
+The canary is checked at one strategic, low-overhead point:
 
-1. **Every syscall return** — add `call canary_check` just before `iret` or
-   `syscall_ret_cf` in the kernel dispatcher.  This catches overflow during
-   any syscall handler.
+1. **Every syscall entry** — `CANARY_CHECK` is the first thing in
+   `syscall_handler`, before the dispatch table lookup.  This catches:
+   - Stack overflow that occurred during the **previous** syscall handler
+   - Stack overflow that occurred in **user-mode code** (shell) between syscalls
+   - Stack overflow during **BIOS calls** invoked by handlers
 
-2. **Every shell command loop iteration** — the shell's main loop calls
-   `canary_check` before prompting for the next command.
+   Because every user-mode operation eventually calls INT 0x80, the check
+   frequency is proportional to OS activity — busy workloads get more checks,
+   idle workloads get fewer (but also use less stack).
 
-3. **Never in tight loops** — don't check inside `serial_putc` or `puts`.
+2. **Never in tight loops** — don't check inside `serial_putc` or `puts`.
    The overhead would be excessive and the check is unnecessary for leaf
    functions.
 
 ### 9.4 Canary Layout
 
 ```
-0x6FFE  ┌──────────────┐
+0x7000  ┌──────────────┐
         │ 0xDEAD       │  ← canary word 1 (first to be overwritten)
-0x7000  ├──────────────┤
-        │ 0xDEAD       │  ← canary word 2
 0x7002  ├──────────────┤
+        │ 0xDEAD       │  ← canary word 2 (redundancy)
+0x7004  ├──────────────┤
         │              │
-        │  Stack zone  │  ← SP grows downward from 0x7BFF
-        │  (3 KB)      │
+        │  Usable      │  ← SP grows downward from 0x7BFF
+        │  stack zone  │     ~3068 bytes of safe stack space
+        │  (~3068 B)   │
         │              │
-0x7C00  └──────────────┘  ← Initial SP
+0x7C00  └──────────────┘  ← Initial SP (set by MBR)
 ```
 
-If the stack grows past 0x7000, it overwrites 0xDEAD with stack data.
-The next `canary_check` call detects this and halts with a diagnostic.
+If the stack grows past 0x7004 and overwrites the canary, the next
+`canary_check` call detects the corruption and halts with a diagnostic
+message on both serial and screen.
 
 ---
 
@@ -2012,16 +2046,23 @@ The next `canary_check` call detects this and halts with a diagnostic.
 
 ```
 src/include/
-├── debug.inc           ← NEW: DBG, DBG_REG, DBG_REGS, ASSERT macros
-├── serial.inc          ← NEW: serial_init, serial_putc, serial_puts,
+├── debug.inc           ← DBG, DBG_REG, DBG_REGS, ASSERT macros
+├── serial.inc          ← serial_init, serial_putc, serial_puts,
 │                              serial_hex8, serial_hex16, serial_crlf
-├── syscalls.inc        (existing — add SYS_* for new debug syscalls if any)
+├── syscalls.inc        (existing — SYS_* function numbers)
 ├── bib.inc             (existing)
-├── memory.inc          (existing)
+├── memory.inc          (existing — includes STACK_CANARY_* constants)
 ├── mnfs.inc            (existing)
 ├── find_file.inc       (existing)
 ├── load_binary.inc     (existing)
-└── boot_msg.inc        (existing — may be updated to use serial for [FAIL])
+└── boot_msg.inc        (existing)
+
+src/kernel/
+├── kernel.asm          (existing — main kernel entry)
+├── kernel_syscall.inc  (existing — syscall dispatcher with CANARY_CHECK)
+├── kernel_data.inc     (existing — string constants)
+├── kernel_fault.inc    (existing — CPU exception handlers)
+└── kernel_stack.inc    ← canary_init, canary_check, CANARY_INIT/CHECK macros
 ```
 
 ### 10.2 Integration Points
@@ -2029,7 +2070,7 @@ src/include/
 | Binary | Changes |
 |--------|---------|
 | LOADER | `%include "serial.inc"` + `%include "debug.inc"` + call `serial_init` early + add DBG calls |
-| KERNEL | `%include "serial.inc"` + `%include "debug.inc"` + syscall tracing in dispatcher + fault handlers + canary_init |
+| KERNEL | `%include "serial.inc"` + `%include "debug.inc"` + `%include "kernel_stack.inc"` + syscall tracing + fault handlers + CANARY_INIT at boot + CANARY_CHECK at syscall entry |
 | FS.BIN | `%include "debug.inc"` (serial funcs from kernel via far call or duplicated) + DBG/ASSERT calls |
 | SHELL | `%include "debug.inc"` + `mnmon` command (always-on) + canary_check in main loop |
 
@@ -2046,9 +2087,9 @@ src/include/
 | 7 | Unified VHD — boot menu selects release/debug at runtime | ✅ Done (v0.8.0) |
 | 7b | User-mode debug syscalls — SYS_DBG_PRINT/HEX16/REGS with caller tags | ✅ Done (v0.7.1) |
 | 7c | Shell debug tracing — `[SHL]` tagged messages at init, dispatch, errors | ✅ Done (v0.7.1) |
-| 8 | Assert macros — ASSERT, ASSERT_MAGIC, ASSERT_CF_CLEAR | 📋 Future |
-| 9 | Fault handlers — INT 0 (div-by-zero), INT 6 (invalid opcode) | 📋 Future |
-| 10 | Stack canary — canary_init in kernel, canary_check in dispatcher | 📋 Future |
+| 8 | Assert macros — ASSERT, ASSERT_MAGIC, ASSERT_CF_CLEAR | ✅ Done (v0.7.2) |
+| 9 | Fault handlers — INT 0 (div-by-zero), INT 6 (invalid opcode), etc. | ✅ Done (v0.7.4) |
+| 10 | Stack canary — canary_init in kernel, canary_check in dispatcher | ✅ Done (v0.8.1) |
 | 11 | `mnmon` command — Wozmon-style machine monitor in shell | 📋 Future |
 
 ### 10.4 Backwards Compatibility

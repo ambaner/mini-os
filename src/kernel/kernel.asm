@@ -46,7 +46,7 @@
 ; =============================================================================
 kernel_magic    db 'MNKN'           ; Magic identifier — kernel
 %ifdef DEBUG
-kernel_sectors  dw 10               ; Kernel size in sectors (debug build)
+kernel_sectors  dw 11               ; Kernel size in sectors (debug build)
 %else
 kernel_sectors  dw 7                ; Kernel size in sectors (release build)
 %endif
@@ -70,6 +70,11 @@ kernel_start:
     ; --- Install CPU exception fault handlers --------------------------------
     call install_fault_handlers
     DBG "KERNEL: PIC remapped, fault handlers installed (INT 0x00-0x08)"
+
+    ; --- Plant stack canary at 0x7000 -----------------------------------------
+    ; Must be done BEFORE loading FS/SHELL (which use significant stack).
+    ; In release builds, CANARY_INIT expands to nothing (0 bytes).
+    CANARY_INIT
 
     ; --- Load FS.BIN (filesystem module) at 0x0800 ---------------------------
     ; FS.BIN replaces LOADER.BIN in memory (LOADER's job is done).
@@ -240,6 +245,8 @@ puts:
 
 %include "kernel_fault.inc"
 
+%include "kernel_stack.inc"
+
 ; =============================================================================
 ; Serial I/O functions (debug build only — placed after kernel code to avoid
 ; polluting the header at offset 0)
@@ -250,7 +257,7 @@ puts:
 ; PADDING — fill to sector boundary
 ; =============================================================================
 %ifdef DEBUG
-times (10 * 512) - ($ - $$) db 0
+times (11 * 512) - ($ - $$) db 0
 %else
 times (7 * 512) - ($ - $$) db 0
 %endif

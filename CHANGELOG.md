@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.8.1] — 2026-05-13
+
+### Added
+- **Stack canary** (debug only) — plants a 4-byte sentinel (0xDEAD × 2) at the
+  stack floor (0x7000) during kernel init; verified on every syscall entry.
+  Catches stack overflow before it silently corrupts kernel code/data.
+  Fatal halt with diagnostic message on screen and serial if triggered.
+- **`kernel_stack.inc`** — new source file in `src/kernel/` with `canary_init`,
+  `canary_check`, and `CANARY_INIT`/`CANARY_CHECK` call-site macros.
+
+### Changed
+- **Debug kernel** grew from 10 → 11 sectors (canary code + strings ≈ 580 bytes)
+- **Stack constants** in `memory.inc` — added `STACK_CANARY_ADDR`, `STACK_CANARY_VALUE`,
+  `STACK_CANARY_SIZE` with detailed comments
+- **Syscall handler** — `CANARY_CHECK` at entry (preserves all registers + FLAGS)
+- Release builds unchanged (all canary macros expand to 0 bytes)
+
+---
+
 ## [0.8.0] — 2026-05-13
 
 ### Added
