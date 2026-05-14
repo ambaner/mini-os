@@ -3,13 +3,16 @@
 ;
 ; Loaded by the VBR into memory at 0x0800.  Responsibilities:
 ;   1. Enable the A20 gate (3 fallback methods)
-;   2. Find KERNEL.BIN in the MNFS directory and load it at 0x5000
-;   3. Transfer control to the kernel
+;   2. Present a boot menu (release / debug kernel selection)
+;   3. Find the selected kernel in the MNFS directory and load it at 0x5000
+;   4. Transfer control to the kernel
 ;
-; The Boot Info Block (BIB) at 0x0600 is populated by the VBR:
+; The Boot Info Block (BIB) at 0x0600 is populated by the VBR and extended
+; by the loader:
 ;   0x0600: boot_drive  (1 byte)
 ;   0x0601: a20_status  (1 byte)  — we update this
 ;   0x0602: part_lba    (4 bytes)
+;   0x0606: boot_mode   (1 byte)  — we set this (0=release, 1=debug)
 ;
 ; Header layout (first 6 bytes):
 ;   Offset 0: 'MNLD'   Magic identifier (4 bytes)
@@ -29,7 +32,7 @@
 ; LOADER HEADER
 ; =============================================================================
 loader_magic    db 'MNLD'           ; Magic identifier
-loader_sectors  dw 2                ; Loader size in sectors (updated as needed)
+loader_sectors  dw 3                ; Loader size in sectors
 
 ; =============================================================================
 ; LOADER CODE
@@ -103,13 +106,11 @@ enable_a20:
     mov byte [BIB_A20], 0           ; Record failure
     mov si, msg_a20_warn            ; Print warning (non-fatal, boot continues)
     call puts
-    jmp load_kernel
+    jmp boot_menu
 
 .a20_ok:
     mov byte [BIB_A20], 1           ; Record success
-    mov si, msg_a20
-    call boot_ok
-    jmp load_kernel
+    jmp boot_menu
 
 ; --- A20 helper: wait for 8042 input buffer to be empty ----------------------
 .a20_wait_cmd:
@@ -176,15 +177,53 @@ check_a20:
     ret
 
 ; =============================================================================
-; LOAD KERNEL.BIN
+; BOOT MENU — Present release/debug kernel selection
 ;
-; Find KERNEL.BIN in the MNFS directory table and load it at 0x5000,
-; then jump to it.
+; Clears the screen, displays a two-entry menu, waits for the user to press
+; '1' (Release) or '2' (Debug), stores the choice in BIB_BOOT_MODE, and
+; sets SI to the correct kernel filename for load_kernel.
+; =============================================================================
+boot_menu:
+    ; Clear screen (set video mode 3 = 80x25 color text)
+    mov ax, 0x0003
+    int 0x10
+
+    ; Print menu
+    mov si, msg_menu
+    call puts
+
+.menu_wait:
+    ; Read keystroke (INT 16h AH=0: wait for key, AL=ASCII)
+    xor ah, ah
+    int 0x16
+
+    cmp al, '1'
+    je .menu_release
+    cmp al, '2'
+    je .menu_debug
+    jmp .menu_wait                  ; Invalid key — try again
+
+.menu_release:
+    mov byte [BIB_BOOT_MODE], 0
+    mov si, fname_kernel
+    jmp load_kernel
+
+.menu_debug:
+    mov byte [BIB_BOOT_MODE], 1
+    mov si, fname_kerneld
+    jmp load_kernel
+
+; =============================================================================
+; LOAD KERNEL
+;
+; Find the selected kernel variant in the MNFS directory table, load it
+; at 0x5000, then jump to it.  SI is set by boot_menu to the correct
+; 11-byte 8.3 filename (fname_kernel or fname_kerneld).
 ; =============================================================================
 load_kernel:
     ; Use 0x3000 (shell area) as scratch buffer for directory read
     mov bx, SHELL_OFF               ; Scratch buffer (shell not loaded yet)
-    mov si, fname_kernel            ; 11-byte "8.3" filename
+    ; SI already set by boot_menu to fname_kernel or fname_kerneld
     call find_file
     jc .kernel_fail
 
@@ -195,7 +234,7 @@ load_kernel:
     call load_mnex
     jc .kernel_fail
 
-    ; --- Boot status: KERNEL.BIN loaded successfully -------------------------
+    ; --- Boot status: kernel loaded successfully -----------------------------
     mov si, msg_kernel
     call boot_ok
 
@@ -227,12 +266,21 @@ puts:
 ; =============================================================================
 ; DATA
 ; =============================================================================
-msg_a20      db 'A20 gate enabled', 0
 msg_a20_warn db '[WARN] A20 gate not enabled', 13, 10, 0
-msg_kernel   db 'KERNEL.BIN', 0
+msg_kernel   db 'Kernel loaded', 0
 
-; 11-byte "8.3" filename for directory lookup (8 name + 3 ext, space-padded)
-fname_kernel db 'KERNEL  BIN'
+; 11-byte "8.3" filenames for directory lookup (8 name + 3 ext, space-padded)
+fname_kernel  db 'KERNEL  BIN'
+fname_kerneld db 'KERNELD BIN'
+
+; Boot menu text
+msg_menu     db 13, 10
+             db '  MNOS Boot Manager', 13, 10
+             db 13, 10
+             db '  1) MNOS [Release]', 13, 10
+             db '  2) MNOS [Debug]', 13, 10
+             db 13, 10
+             db '  Press 1 or 2: ', 0
 
 ; --- Disk Address Packet (DAP) for INT 13h AH=42h ---------------------------
 dap:
@@ -245,6 +293,6 @@ dap_lba:
     dd 0, 0                         ; LBA (set by load_mnex)
 
 ; =============================================================================
-; PADDING — fill to 2 sectors (1024 bytes)
+; PADDING — fill to 3 sectors (1536 bytes)
 ; =============================================================================
-times (2 * 512) - ($ - $$) db 0
+times (3 * 512) - ($ - $$) db 0

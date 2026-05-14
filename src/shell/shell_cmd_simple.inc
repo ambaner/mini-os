@@ -26,10 +26,14 @@ cmd_help:
 
 ; =============================================================================
 ; COMMAND: ver
-; Print version and build information.
+; Print version and build information, including boot mode tag.
 ; =============================================================================
 cmd_ver:
-    mov si, msg_ver_text
+    mov si, msg_ver_line1
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    call print_boot_tag
+    mov si, msg_ver_rest
     mov ah, SYS_PRINT_STRING
     int 0x80
     jmp shell_prompt

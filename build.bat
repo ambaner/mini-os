@@ -1,6 +1,6 @@
 @echo off
-:: build.bat — Build mini-os (assembles MBR, creates VHD)
-:: Usage: build.bat [clean] [/debug]
+:: build.bat — Build mini-os (assembles all variants, creates unified VHD)
+:: Usage: build.bat [clean]
 
 setlocal
 
@@ -17,8 +17,6 @@ if errorlevel 1 (
 
 if /i "%~1"=="clean" (
     pwsh -NoProfile -ExecutionPolicy Bypass -File "tools\build.ps1" -Clean
-) else if /i "%~1"=="/debug" (
-    pwsh -NoProfile -ExecutionPolicy Bypass -File "tools\build.ps1" -DebugBuild
 ) else (
     pwsh -NoProfile -ExecutionPolicy Bypass -File "tools\build.ps1"
 )

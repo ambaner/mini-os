@@ -4,8 +4,10 @@
 
 ; --- Shell strings -----------------------------------------------------------
 msg_banner      db 13, 10
-                db '  MNOS v0.7.5', 13, 10
-                db 13, 10, 0
+                db '  MNOS v0.8.0 ', 0      ; Tag appended at runtime
+
+msg_tag_release db '[Release]', 13, 10, 13, 10, 0
+msg_tag_debug   db '[Debug]', 13, 10, 13, 10, 0
 
 msg_prompt      db 'mnos:\>', 0
 
@@ -30,8 +32,8 @@ str_reboot      db 'reboot', 0
 str_dir         db 'dir', 0
 
 ; --- ver command strings -----------------------------------------------------
-msg_ver_text    db '  MNOS v0.7.5', 13, 10
-                db '  Arch:      x86 real mode (16-bit)', 13, 10
+msg_ver_line1   db '  MNOS v0.8.0 ', 0     ; Tag appended at runtime
+msg_ver_rest    db '  Arch:      x86 real mode (16-bit)', 13, 10
                 db '  Assembler: NASM', 13, 10
                 db '  Platform:  Hyper-V Gen 1', 13, 10
                 db '  Boot:      MBR -> VBR -> LOADER -> KERNEL -> SHELL', 13, 10

@@ -57,10 +57,13 @@ shell_init:
     mov ah, SYS_DBG_PRINT
     int 0x80
 
-    ; Print banner via kernel syscall
+    ; Print banner (version line without trailing CRLF)
     mov si, msg_banner
     mov ah, SYS_PRINT_STRING
     int 0x80
+
+    ; Print boot mode tag ([Release] or [Debug])
+    call print_boot_tag
 
 ; --- Prompt loop (returns here after each command) ---------------------------
 shell_prompt:

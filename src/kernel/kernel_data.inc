@@ -14,7 +14,9 @@ msg_anykey      db 13, 10, '  Press any key...', 0
 
 ; 11-byte "8.3" filenames for directory lookup
 fname_fs        db 'FS      BIN'
+fname_fsd       db 'FSD     BIN'
 fname_shell     db 'SHELL   BIN'
+fname_shelld    db 'SHELLD  BIN'
 
 ; --- Disk Address Packet (DAP) for INT 13h AH=42h ----------------------------
 ; Used by both load_mnex (during init) and SYS_READ_SECTOR (during runtime).

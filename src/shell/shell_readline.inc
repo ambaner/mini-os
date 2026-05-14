@@ -159,3 +159,27 @@ rjust_dec16:
     pop ax
     ret
 
+; ---------------------------------------------------------------------------
+; print_boot_tag — Print [Release] or [Debug] based on BIB boot_mode.
+;
+; Reads BIB_BOOT_MODE via SYS_GET_BIB and prints the appropriate tag
+; followed by CRLF.  Saves/restores ES and BX.
+; ---------------------------------------------------------------------------
+print_boot_tag:
+    push es
+    push bx
+    mov ah, SYS_GET_BIB
+    int 0x80                        ; ES:BX = BIB address (ES=0, BX=0x0600)
+    cmp byte [es:bx+6], 1          ; BIB_BOOT_MODE at offset 6 from BIB base
+    pop bx
+    pop es
+    je .pbt_debug
+    mov si, msg_tag_release
+    jmp .pbt_print
+.pbt_debug:
+    mov si, msg_tag_debug
+.pbt_print:
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    ret
+

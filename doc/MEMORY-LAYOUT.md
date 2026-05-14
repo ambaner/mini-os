@@ -74,12 +74,13 @@ Address       Size      Contents                 Lifetime
                          ├── 0x0600: boot_drive    read by all stages
                          ├── 0x0601: a20_status
                          ├── 0x0602: part_lba (4B)
-                         └── 0x0606–0x060F: reserved
+                         ├── 0x0606: boot_mode (1B)
+                         └── 0x0607–0x060F: reserved
 
 0x0000:0x0610   496 B   (Unused gap)              Available for future use
 
 0x0000:0x0800  8192 B   LOADER.BIN (boot-time)    LOADER runs here during
-               (8 KB     (2 sectors = 1 KB used)   boot, then dead.  KERNEL
+               (8 KB     (3 sectors = 1.5 KB used) boot, then dead.  KERNEL
                 max)                                overwrites with FS.BIN ↓
 
                          FS.BIN (runtime)          Permanent after kernel

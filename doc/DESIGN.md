@@ -284,10 +284,13 @@ Sectors 1–2047          → Gap (zeroed, reserved)
 Sector 2048             → Partition start: VBR (2 sectors)
 Sector 2050             → MNFS directory table (1 sector, up to 15 entries)
 Sector 2051+            → Files packed contiguously:
-                            LOADER.BIN (2 sectors)
-                            FS.BIN     (2 sectors)
-                            KERNEL.BIN (7 sectors)
-                            SHELL.BIN  (12 sectors)
+                            LOADER.BIN  (3 sectors)
+                            FS.BIN      (2 sectors)
+                            KERNEL.BIN  (7 sectors)
+                            SHELL.BIN   (12 sectors)
+                            FSD.BIN     (4 sectors)
+                            KERNELD.BIN (10 sectors)
+                            SHELLD.BIN  (12 sectors)
 Remaining sectors       → Zeroed (available for future files)
 ```
 
@@ -540,22 +543,23 @@ is PowerShell + NASM.
      │      └─ 1024 bytes (2 sectors): header + load_mnex chain + 0xAA55
      │
      ├─ 4. nasm -f bin -I src/include/ -o build/boot/loader.bin src/loader/loader.asm
-     │      └─ 1024 bytes (2 sectors): A20 enablement + load_mnex chain
+     │      └─ 1536 bytes (3 sectors): A20 enablement + boot menu + load_mnex
      │
-     ├─ 5. nasm -f bin -I src/include/ -I src/fs/ -o build/boot/fs.bin src/fs/fs.asm
-     │      └─ 1024 bytes (2 sectors): MNFS directory cache + INT 0x81 handler
+     ├─ 5. Release variants (no -dDEBUG):
+     │      ├─ nasm ... -o build/boot/fs.bin       (2 sectors)
+     │      ├─ nasm ... -o build/boot/kernel.bin   (7 sectors)
+     │      └─ nasm ... -o build/boot/shell.bin    (12 sectors)
      │
-     ├─ 6. nasm -f bin -I src/include/ -I src/kernel/ -o build/boot/kernel.bin src/kernel/kernel.asm
-     │      └─ 3584 bytes (7 sectors): INT 0x80 handler + fault handlers + loads FS+SHELL
+     ├─ 6. Debug variants (-dDEBUG):
+     │      ├─ nasm -dDEBUG ... -o build/boot/fsd.bin       (4 sectors)
+     │      ├─ nasm -dDEBUG ... -o build/boot/kerneld.bin   (10 sectors)
+     │      └─ nasm -dDEBUG ... -o build/boot/shelld.bin    (12 sectors)
      │
-     ├─ 7. nasm -f bin -I src/include/ -I src/shell/ -o build/boot/shell.bin src/shell/shell.asm
-     │      └─ 6144 bytes (12 sectors): interactive shell + dir/sysinfo/mem/ver commands
-     │
-     ├─ 8. tools/create-disk.ps1 — build raw disk image
+     ├─ 7. tools/create-disk.ps1 — build raw disk image (7 MNFS files)
      │      └─ Stamps partition table into MBR, partition LBA into VBR,
      │         generates MNFS directory, packs files contiguously
      │
-     └─ 9. tools/create-vhd.ps1 — wrap as VHD
+     └─ 8. tools/create-vhd.ps1 — wrap as VHD
             └─ Appends 512-byte VHD footer
 ```
 
@@ -565,11 +569,14 @@ is PowerShell + NASM.
 |------|------|-------------|
 | `build/boot/mbr.bin` | 512 B | Raw MBR binary (before partition table stamp) |
 | `build/boot/vbr.bin` | 1 KB (2 × 512) | Raw VBR binary |
-| `build/boot/loader.bin` | 1 KB (2 × 512) | LOADER.BIN with A20 enablement |
-| `build/boot/fs.bin` | 1 KB (2 × 512) | FS.BIN — MNFS filesystem module |
-| `build/boot/kernel.bin` | 3 KB (6 × 512) | KERNEL.BIN with INT 0x80 + file loading |
-| `build/boot/shell.bin` | 6 KB (12 × 512) | SHELL.BIN with all commands |
-| `build/boot/mini-os.img` | 16 MB | Partitioned raw disk image |
+| `build/boot/loader.bin` | 1.5 KB (3 × 512) | LOADER.BIN with A20 enablement + boot menu |
+| `build/boot/fs.bin` | 1 KB (2 × 512) | FS.BIN — MNFS filesystem module (release) |
+| `build/boot/kernel.bin` | 3.5 KB (7 × 512) | KERNEL.BIN with INT 0x80 + file loading (release) |
+| `build/boot/shell.bin` | 6 KB (12 × 512) | SHELL.BIN with all commands (release) |
+| `build/boot/fsd.bin` | 2 KB (4 × 512) | FSD.BIN — debug FS with serial logging |
+| `build/boot/kerneld.bin` | 5 KB (10 × 512) | KERNELD.BIN — debug kernel with tracing |
+| `build/boot/shelld.bin` | 6 KB (12 × 512) | SHELLD.BIN — debug shell |
+| `build/boot/mini-os.img` | 16 MB | Partitioned raw disk image (7 MNFS files) |
 | `build/boot/mini-os.vhd` | 16 MB + 512 B | Bootable fixed VHD |
 
 ### 6.3 Clean Build
@@ -622,7 +629,8 @@ mini-os/
 │       └── release.yml           CD — package & release on version tags
 ├── doc/
 │   ├── DESIGN.md                 ← this document
-│   └── FILESYSTEM.md             MNFS filesystem specification
+│   ├── FILESYSTEM.md             MNFS filesystem specification
+│   └── LOADER.md                 Stage-2 loader design (A20, boot menu)
 ├── src/
 │   ├── include/                     Shared assembly includes (%include)
 │   │   ├── bib.inc                  Boot Info Block field addresses
@@ -710,6 +718,7 @@ This document will be updated as the project evolves. Planned milestones:
 - [INT 10h — BIOS Video Services](https://en.wikipedia.org/wiki/INT_10H)
 - [Hyper-V Generation 1 vs 2](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/plan/should-i-create-a-generation-1-or-2-virtual-machine-in-hyper-v)
 - [MNFS Filesystem Specification](FILESYSTEM.md) — flat filesystem format, directory table, FS.BIN module, INT 0x81 API
+- [Stage-2 Loader Design](LOADER.md) — A20 gate, boot menu design, dual-boot architecture, BIB propagation
 - [Boot Layout Design Rationale](BOOT-LAYOUT-RATIONALE.md) — why three stages, DOS/Windows/Linux comparisons, LBA gap analysis
 - [Memory Layout Design Document](MEMORY-LAYOUT.md) — exhaustive memory map, stack analysis, A20/protected mode roadmap
 - [CPU Modes and Transitions](CPU-MODES-AND-TRANSITIONS.md) — 16→32→64-bit journey, GDT/IDT/paging, hardware drivers, BIOS vs UEFI

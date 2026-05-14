@@ -1,12 +1,13 @@
 # mini-os
 
-A minimalistic operating system, built from scratch — currently at **v0.7.5**.
+A minimalistic operating system, built from scratch — currently at **v0.8.0**.
 MBR reads the partition table, chain-loads a VBR which loads a stage-2 loader
-(A20 gate enablement), which loads a 16-bit kernel (KERNEL.BIN) that provides
+(A20 gate enablement + boot menu), which loads a 16-bit kernel (KERNEL.BIN) that provides
 an INT 0x80 syscall interface, which loads the filesystem module (FS.BIN) with
 an INT 0x81 filesystem API, and finally the interactive shell (`mnos:\>`) with
 commands for system info, CPU details, memory diagnostics, directory listing,
-version info, and more.
+version info, and more.  A boot menu lets the user choose between Release and
+Debug kernel configurations from a single disk image.
 
 ![mini-os booting in Hyper-V](doc/booted.gif)
 
@@ -27,33 +28,30 @@ build.bat
 
 The build script will:
 1. Download NASM into `tools/nasm/` if not already installed
-2. Assemble MBR, VBR, LOADER, FS, KERNEL, and SHELL binaries
-3. Create `build/boot/mini-os.vhd` (16 MB fixed VHD with partition table)
+2. Assemble all binaries — release **and** debug variants (9 total)
+3. Create `build/boot/mini-os.vhd` (16 MB fixed VHD with both variants)
 
-### Debug build
+### Debug serial output
 
-```cmd
-build.bat /debug
-```
+The unified VHD contains both release and debug kernels — select at the boot
+menu.  Debug mode adds serial logging, syscall tracing, assertion macros, and
+boot milestone messages via COM1 (115200 baud, 8N1).  Assert failures dump
+registers to serial and halt the CPU.  CPU fault handlers are present in
+**both** builds — release shows exception name, CS:IP, registers, FLAGS, and
+stack on screen; debug additionally logs to serial.  See `doc/DEBUGGING.md`
+§3–6 for details.
 
-Adds serial logging, syscall tracing, assertion macros, and boot milestone
-messages via COM1 (115200 baud, 8N1). Assert failures dump registers to serial
-and halt the CPU. CPU fault handlers are present in both builds — release shows
-exception name, CS:IP, registers, FLAGS, and stack on screen; debug additionally
-logs to serial. See `doc/DEBUGGING.md` §3–6 for details.
-
-To read serial output from a debug build (requires admin — manages VM lifecycle):
+To read serial output from a debug boot (requires admin — manages VM lifecycle):
 
 ```cmd
-:: Build debug, setup VM, then capture serial from boot:
-build.bat /debug
+build.bat
 setup-vm.bat
 read-serial.bat
 ```
 
 `read-serial.bat` stops the VM, restarts it, and immediately connects to the
-COM1 pipe — capturing boot messages from the first byte. On VM reboot or
-reset, it auto-reconnects. Press Ctrl+C to stop.
+COM1 pipe — capturing boot messages from the first byte.  On VM reboot or
+reset, it auto-reconnects.  Press Ctrl+C to stop.
 
 ## Running in Hyper-V
 
@@ -66,12 +64,32 @@ build.bat
 setup-vm.bat
 ```
 
-The script will prompt for a VM name and location (defaults are fine), then create a Gen 1 / 32 MB RAM VM with no network adapter and COM1 mapped to `\\.\pipe\minios-serial` for serial debug output. When both release and debug VHDs exist, it prompts which one to attach. On repeat runs it stops the VM, swaps in the chosen VHD, and leaves it ready to start.
+The script will prompt for a VM name and location (defaults are fine), then
+create a Gen 1 / 32 MB RAM VM with no network adapter and COM1 mapped to
+`\\.\pipe\minios-serial` for serial debug output.  On repeat runs it stops the
+VM, swaps in the new VHD, and leaves it ready to start.
 
-You should see the MBR banner and partition table info, then the shell:
+### Boot menu
+
+On startup, the loader presents a boot menu:
 
 ```
-  MNOS v0.7.4
+  MNOS Boot Manager
+
+  1) MNOS [Release]
+  2) MNOS [Debug]
+
+  Press 1 or 2:
+```
+
+Press **1** for the release kernel or **2** for the debug kernel (with serial
+tracing, assertion macros, and debug syscalls).  Both variants are on the same
+VHD — no need to rebuild or swap images.
+
+After the boot chain completes, you'll see the shell:
+
+```
+  MNOS v0.8.0 [Release]
 
 mnos:\>
 ```
@@ -104,6 +122,7 @@ mini-os/
 │       └── release.yml       # CD — package & release on version tags
 ├── doc/
 │   ├── DESIGN.md             # Architecture & design document
+│   ├── LOADER.md             # Stage-2 loader design (A20, boot menu)
 │   ├── BOOT-LAYOUT-RATIONALE.md  # Boot chain design rationale (DOS/Windows/Linux comparisons)
 │   ├── MEMORY-LAYOUT.md      # Memory map, stack analysis, protected-mode roadmap
 │   ├── CPU-MODES-AND-TRANSITIONS.md  # 16→32→64-bit journey, BIOS vs UEFI
@@ -219,6 +238,7 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.7.3` | **CPU Fault Handlers** | Trap #DE, #DB, #OF, #BR, #UD, #NM, #DF — exception name + CS:IP + register dump; debug only |
 | `v0.7.4` | **Release Fault Handlers** | Fault handlers in both builds; PIC remapped (IRQ→0x20); full crash screen with registers, FLAGS, stack; 7 vectors |
 | `v0.7.5` | **Source File Split** | Kernel & shell split into focused include files; binary-identical output; build script adds per-module include paths |
+| `v0.8.0` | **Dual-Boot Menu** | Boot menu (release/debug); unified VHD with both variants; BIB boot_mode; shell shows [Release]/[Debug] |
 
 ```cmd
 git checkout v0.1.0      # see the project at any prior milestone

@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.8.0] — 2026-05-13
+
+### Added
+- **Dual-boot menu** — LOADER presents a boot menu at startup:
+  - `1) MNOS [Release]` / `2) MNOS [Debug]` — user selects kernel configuration
+  - Both release and debug variants coexist on the same disk image
+  - `BIB_BOOT_MODE` field (0x0606) propagates the selection to KERNEL and SHELL
+- **Debug file variants on disk** — FSD.BIN, KERNELD.BIN, SHELLD.BIN alongside
+  release variants; MNFS directory now has 7 entries
+- **Shell boot mode tag** — banner and `ver` command show `[Release]` or `[Debug]`
+
+### Changed
+- **Unified build pipeline** — `build.bat` always builds both release and debug
+  variants; removed `-DebugBuild` / `/debug` flag; single VHD output
+- **LOADER.BIN** — grew from 2 to 3 sectors (menu code + strings)
+- **Kernel conditional loading** — reads BIB_BOOT_MODE to select FS/FSD and
+  SHELL/SHELLD filenames
+- **create-disk.ps1** — accepts 7 MNFS files (3 shared + 3 release + 3 debug)
+
+---
+
 ## [0.7.5] — 2026-05-13
 
 ### Changed

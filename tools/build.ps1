@@ -1,24 +1,18 @@
 <#
 .SYNOPSIS
-    Build script for mini-os.  Assembles MBR + VBR + LOADER + FS + KERNEL + SHELL, creates a partitioned VHD.
+    Build script for mini-os.  Assembles all boot components (release + debug),
+    creates a unified partitioned VHD with both kernel configurations.
 
 .DESCRIPTION
     1. Downloads NASM if not found on PATH or in tools/nasm/.
-    2. Assembles src/boot/mbr.asm      -> build/boot/mbr.bin
-    3. Assembles src/boot/vbr.asm      -> build/boot/vbr.bin
-    4. Assembles src/loader/loader.asm  -> build/boot/loader.bin
-    5. Assembles src/fs/fs.asm          -> build/boot/fs.bin
-    6. Assembles src/kernel/kernel.asm  -> build/boot/kernel.bin
-    7. Assembles src/shell/shell.asm    -> build/boot/shell.bin
-    8. Creates a partitioned raw disk image via tools/create-disk.ps1
-    9. Wraps the raw image as a VHD via tools/create-vhd.ps1
+    2. Assembles shared components: MBR, VBR, LOADER
+    3. Assembles release variants: FS, KERNEL, SHELL
+    4. Assembles debug variants: FSD, KERNELD, SHELLD (with -dDEBUG)
+    5. Creates a partitioned raw disk image with all 7 MNFS files
+    6. Wraps the raw image as a VHD
 
 .PARAMETER Clean
     Remove the build/ directory before building.
-
-.PARAMETER DebugBuild
-    Enable debug build — passes -dDEBUG to NASM, enabling serial logging,
-    syscall tracing, and all DBG macros.  See doc/DEBUGGING.md.
 
 .PARAMETER DiskSizeMB
     VHD disk size in megabytes (default: 16).
@@ -27,7 +21,6 @@
 [CmdletBinding()]
 param(
     [switch]$Clean,
-    [switch]$DebugBuild,
     [int]$DiskSizeMB = 16
 )
 
@@ -46,16 +39,25 @@ $LoaderAsm  = Join-Path $Root 'src\loader\loader.asm'
 $KernelAsm  = Join-Path $Root 'src\kernel\kernel.asm'
 $FsAsm      = Join-Path $Root 'src\fs\fs.asm'
 $ShellAsm   = Join-Path $Root 'src\shell\shell.asm'
+$IncludeDir = Join-Path $Root 'src\include'
+
+# Shared binaries
 $MbrBin     = Join-Path $BuildDir 'mbr.bin'
 $VbrBin     = Join-Path $BuildDir 'vbr.bin'
 $LoaderBin  = Join-Path $BuildDir 'loader.bin'
-$KernelBin  = Join-Path $BuildDir 'kernel.bin'
+
+# Release binaries
 $FsBin      = Join-Path $BuildDir 'fs.bin'
+$KernelBin  = Join-Path $BuildDir 'kernel.bin'
 $ShellBin   = Join-Path $BuildDir 'shell.bin'
-$IncludeDir = Join-Path $Root 'src\include'
-$VhdSuffix  = if ($DebugBuild) { '-debug' } else { '' }
-$RawImg     = Join-Path $BuildDir "mini-os${VhdSuffix}.img"
-$VhdOut     = Join-Path $BuildDir "mini-os${VhdSuffix}.vhd"
+
+# Debug binaries
+$FsDbgBin     = Join-Path $BuildDir 'fsd.bin'
+$KernelDbgBin = Join-Path $BuildDir 'kerneld.bin'
+$ShellDbgBin  = Join-Path $BuildDir 'shelld.bin'
+
+$RawImg     = Join-Path $BuildDir 'mini-os.img'
+$VhdOut     = Join-Path $BuildDir 'mini-os.vhd'
 
 # ---------- helpers ---------------------------------------------------------
 function Write-Step([string]$msg) { Write-Host "[mini-os] $msg" -ForegroundColor Cyan }
@@ -65,14 +67,15 @@ function Build-Binary {
         [string]$Name,
         [string]$AsmPath,
         [string]$BinPath,
-        [int]$ExpectedSize = 0    # 0 = no specific size check
+        [int]$ExpectedSize = 0,
+        [switch]$Debug
     )
-    $label = if ($DebugBuild) { "Assembling ${Name} (DEBUG)..." } else { "Assembling ${Name}..." }
+    $label = if ($Debug) { "Assembling ${Name} (DEBUG)..." } else { "Assembling ${Name}..." }
     Write-Step $label
 
     $srcDir = Split-Path $AsmPath -Parent
     $flags = @('-f', 'bin', '-I', "$IncludeDir/", '-I', "$srcDir/", '-o', $BinPath)
-    if ($DebugBuild) { $flags = @('-dDEBUG') + $flags }
+    if ($Debug) { $flags = @('-dDEBUG') + $flags }
     $flags += $AsmPath
     & $nasm @flags
     if ($LASTEXITCODE -ne 0) { throw "NASM assembly of $Name failed." }
@@ -90,14 +93,10 @@ function Build-Binary {
 }
 
 function Get-NasmPath {
-    # 1. On PATH?
     $found = Get-Command nasm -ErrorAction SilentlyContinue
     if ($found) { return $found.Source }
-
-    # 2. In tools/nasm/?
     $local = Join-Path $NasmDir 'nasm.exe'
     if (Test-Path $local) { return $local }
-
     return $null
 }
 
@@ -135,18 +134,31 @@ $nasm = Get-NasmPath
 if (-not $nasm) { $nasm = Install-Nasm }
 Write-Step "Using NASM: $nasm"
 
-# ---------- assemble all binaries -------------------------------------------
+# ---------- assemble shared binaries ----------------------------------------
 Build-Binary -Name 'MBR'    -AsmPath $MbrAsm    -BinPath $MbrBin    -ExpectedSize 512
 Build-Binary -Name 'VBR'    -AsmPath $VbrAsm    -BinPath $VbrBin
 Build-Binary -Name 'LOADER' -AsmPath $LoaderAsm -BinPath $LoaderBin
+
+# ---------- assemble release variants ---------------------------------------
+Write-Step '--- Release variants ---'
 Build-Binary -Name 'FS'     -AsmPath $FsAsm     -BinPath $FsBin
 Build-Binary -Name 'KERNEL' -AsmPath $KernelAsm -BinPath $KernelBin
 Build-Binary -Name 'SHELL'  -AsmPath $ShellAsm  -BinPath $ShellBin
 
+# ---------- assemble debug variants -----------------------------------------
+Write-Step '--- Debug variants ---'
+Build-Binary -Name 'FSD'     -AsmPath $FsAsm     -BinPath $FsDbgBin     -Debug
+Build-Binary -Name 'KERNELD' -AsmPath $KernelAsm -BinPath $KernelDbgBin -Debug
+Build-Binary -Name 'SHELLD'  -AsmPath $ShellAsm  -BinPath $ShellDbgBin  -Debug
+
 # ---------- create partitioned disk image -----------------------------------
 Write-Step 'Creating partitioned disk image...'
 $DiskScript = Join-Path $ToolsDir 'create-disk.ps1'
-& $DiskScript -MbrPath $MbrBin -VbrPath $VbrBin -LoaderPath $LoaderBin -FsPath $FsBin -KernelPath $KernelBin -ShellPath $ShellBin -OutputPath $RawImg -SizeMB $DiskSizeMB
+& $DiskScript `
+    -MbrPath $MbrBin -VbrPath $VbrBin -LoaderPath $LoaderBin `
+    -FsPath $FsBin -KernelPath $KernelBin -ShellPath $ShellBin `
+    -FsDbgPath $FsDbgBin -KernelDbgPath $KernelDbgBin -ShellDbgPath $ShellDbgBin `
+    -OutputPath $RawImg -SizeMB $DiskSizeMB
 
 # ---------- create VHD ------------------------------------------------------
 Write-Step 'Creating VHD...'

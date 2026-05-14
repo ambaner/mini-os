@@ -74,8 +74,15 @@ kernel_start:
     ; --- Load FS.BIN (filesystem module) at 0x0800 ---------------------------
     ; FS.BIN replaces LOADER.BIN in memory (LOADER's job is done).
     ; Use 0x3000 (shell area) as scratch buffer for directory read.
+    ; Select filename based on boot mode (release=FS, debug=FSD).
     mov bx, SHELL_OFF               ; Scratch buffer (shell not loaded yet)
+    cmp byte [BIB_BOOT_MODE], 1
+    je .use_fsd
     mov si, fname_fs                ; "FS      BIN"
+    jmp .do_find_fs
+.use_fsd:
+    mov si, fname_fsd               ; "FSD     BIN"
+.do_find_fs:
     call find_file
     jc .fs_find_fail
 
@@ -104,8 +111,15 @@ kernel_start:
     ; --- Load SHELL.BIN at 0x3000 --------------------------------------------
     ; Use 0x2000 as scratch buffer for directory read (safe — between LOADER
     ; area and SHELL area, and FS.BIN at 0x0800 is only ~1 KB).
+    ; Select filename based on boot mode (release=SHELL, debug=SHELLD).
     mov bx, 0x2000                  ; Scratch buffer
+    cmp byte [BIB_BOOT_MODE], 1
+    je .use_shelld
     mov si, fname_shell             ; "SHELL   BIN"
+    jmp .do_find_shell
+.use_shelld:
+    mov si, fname_shelld            ; "SHELLD  BIN"
+.do_find_shell:
     call find_file
     jc .shell_find_fail
 

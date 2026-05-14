@@ -9,7 +9,8 @@
       3. VBR written at the partition's first sector
       4. MNFS directory table at partition sector 2
       5. Files packed contiguously starting at partition sector 3:
-         LOADER.BIN, FS.BIN, KERNEL.BIN, SHELL.BIN
+         LOADER.BIN, FS.BIN, KERNEL.BIN, SHELL.BIN,
+         FSD.BIN, KERNELD.BIN, SHELLD.BIN
       6. Partition start LBA stamped into VBR header at offset 9
 
     The MNFS directory table is generated automatically from the binaries.
@@ -26,13 +27,22 @@
     Path to the assembled LOADER.BIN binary (multiple of 512 bytes).
 
 .PARAMETER FsPath
-    Path to the assembled FS.BIN binary (multiple of 512 bytes).
+    Path to the assembled FS.BIN binary (release, multiple of 512 bytes).
 
 .PARAMETER KernelPath
-    Path to the assembled KERNEL.BIN binary (multiple of 512 bytes).
+    Path to the assembled KERNEL.BIN binary (release, multiple of 512 bytes).
 
 .PARAMETER ShellPath
-    Path to the assembled SHELL.BIN binary (multiple of 512 bytes).
+    Path to the assembled SHELL.BIN binary (release, multiple of 512 bytes).
+
+.PARAMETER FsDbgPath
+    Path to the assembled FSD.BIN binary (debug, multiple of 512 bytes).
+
+.PARAMETER KernelDbgPath
+    Path to the assembled KERNELD.BIN binary (debug, multiple of 512 bytes).
+
+.PARAMETER ShellDbgPath
+    Path to the assembled SHELLD.BIN binary (debug, multiple of 512 bytes).
 
 .PARAMETER OutputPath
     Path for the output raw disk image.
@@ -55,6 +65,9 @@ param(
     [Parameter(Mandatory)][string]$FsPath,
     [Parameter(Mandatory)][string]$KernelPath,
     [Parameter(Mandatory)][string]$ShellPath,
+    [Parameter(Mandatory)][string]$FsDbgPath,
+    [Parameter(Mandatory)][string]$KernelDbgPath,
+    [Parameter(Mandatory)][string]$ShellDbgPath,
     [Parameter(Mandatory)][string]$OutputPath,
     [int]$SizeMB = 16,
     [int]$PartitionStartLBA = 2048,
@@ -102,6 +115,9 @@ $loaderBytes = Read-Binary $LoaderPath 'LOADER'  'MNLD'
 $fsBytes     = Read-Binary $FsPath     'FS'      'MNFS'
 $kernelBytes = Read-Binary $KernelPath 'KERNEL'  'MNKN'
 $shellBytes  = Read-Binary $ShellPath  'SHELL'   'MNEX'
+$fsDbgBytes     = Read-Binary $FsDbgPath     'FSD'      'MNFS'
+$kernelDbgBytes = Read-Binary $KernelDbgPath 'KERNELD'  'MNKN'
+$shellDbgBytes  = Read-Binary $ShellDbgPath  'SHELLD'   'MNEX'
 
 # ---------- build file list and pack contiguously ---------------------------
 # Files are packed starting at partition sector 3 (after VBR + directory)
@@ -112,6 +128,9 @@ $files = @(
     @{ Name = 'FS      BIN'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $fsBytes }
     @{ Name = 'KERNEL  BIN'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $kernelBytes }
     @{ Name = 'SHELL   BIN'; Attr = $MNFS_ATTR_EXEC;   Bytes = $shellBytes }
+    @{ Name = 'FSD     BIN'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $fsDbgBytes }
+    @{ Name = 'KERNELD BIN'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $kernelDbgBytes }
+    @{ Name = 'SHELLD  BIN'; Attr = $MNFS_ATTR_EXEC;   Bytes = $shellDbgBytes }
 )
 
 if ($files.Count -gt $MNFS_MAX_ENTRIES) {

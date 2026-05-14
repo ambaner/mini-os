@@ -1828,27 +1828,24 @@ function Build-Binary {
 ```
 
 ```batch
-:: build.bat — /debug option
+:: build.bat — builds both release and debug variants (v0.8.0+)
 @echo off
-if "%1"=="/debug" (
-    pwsh -ExecutionPolicy Bypass -File tools\build.ps1 -DebugBuild
-) else (
-    pwsh -ExecutionPolicy Bypass -File tools\build.ps1
-)
+pwsh -ExecutionPolicy Bypass -File tools\build.ps1
 ```
 
-Output files are named separately so both VHDs can coexist:
+As of v0.8.0, `build.bat` always builds **both** release and debug variants
+into a single unified VHD.  The boot menu lets the user select at startup.
 
 | Build | Raw image | VHD |
 |-------|-----------|-----|
-| Release | `build/boot/mini-os.img` | `build/boot/mini-os.vhd` |
-| Debug | `build/boot/mini-os-debug.img` | `build/boot/mini-os-debug.vhd` |
+| Unified | `build/boot/mini-os.img` | `build/boot/mini-os.vhd` |
 
-`setup-vm.bat` prompts which VHD to attach when both are present.
+The unified VHD contains 7 MNFS files: LOADER (shared), FS + KERNEL + SHELL
+(release), and FSD + KERNELD + SHELLD (debug).
 
 ### 8.3 What Each Mode Includes
 
-| Facility | `build.bat` (release) | `build.bat /debug` |
+| Facility | Release (menu option 1) | Debug (menu option 2) |
 |----------|----------------------|-------------------|
 | Serial init + putc/puts | ✗ | ✓ |
 | `DBG` macros | ✗ (expand to nothing) | ✓ |
@@ -1865,14 +1862,14 @@ builds.  Only the heavy instrumentation is debug-only.
 
 ### 8.4 Binary Size Impact
 
-Measured size increase with DEBUG enabled (v0.7.0):
+Measured size increase with DEBUG enabled (v0.8.0):
 
 | Binary | Release | Debug | Increase | Max region |
 |--------|---------|-------|----------|------------|
-| LOADER.BIN | 1 KB (2 sec) | 1 KB (2 sec) | 0 B (no debug instrumentation yet) | 8 KB |
+| LOADER.BIN | 1.5 KB (3 sec) | *(shared)* | — | 8 KB |
 | FS.BIN | 1 KB (2 sec) | 2 KB (4 sec) | +1 KB (serial funcs + FS tracing + asserts) | 8 KB |
-| KERNEL.BIN | 3.5 KB (7 sec) | 5 KB (10 sec) | +2.5 KB (serial + fault handlers + PIC remap) | 8 KB |
-| SHELL.BIN | 6 KB (12 sec) | 6 KB (12 sec) | 0 B (no debug instrumentation yet) | 8 KB |
+| KERNEL.BIN | 3.5 KB (7 sec) | 5 KB (10 sec) | +1.5 KB (serial + tracing + debug syscalls) | 8 KB |
+| SHELL.BIN | 6 KB (12 sec) | 6 KB (12 sec) | 0 B | 8 KB |
 
 All binaries remain well within their 8 KB maximum allocation.  The sector
 counts in each binary's header are conditional (`%ifdef DEBUG`), so the loader
@@ -1897,19 +1894,21 @@ via `ORG` directives — they never change.  Debug builds simply use more space
 **within** each pre-allocated region.  No regions overlap, and ample growth
 room remains.
 
-What **does** differ is the **disk layout**.  The MNFS directory records
-different sector counts for debug binaries, so files are packed at different
-disk offsets:
+As of v0.8.0, **both release and debug variants are on the same disk**.  The
+MNFS directory has 7 entries — the boot menu selects which set to load:
 
 ```
-                Release disk layout              Debug disk layout
-Sector 2048:    VBR (2 sec)                      VBR (2 sec)
-Sector 2050:    MNFS directory                   MNFS directory
-Sector 2051:    LOADER.BIN (2 sec)               LOADER.BIN (2 sec)
-Sector 2053:    FS.BIN (2 sec)                   FS.BIN (4 sec)
-Sector 2055:    KERNEL.BIN (7 sec)               Sector 2057: KERNEL.BIN (10 sec)
-Sector 2062:    SHELL.BIN (12 sec)               Sector 2067: SHELL.BIN (12 sec)
-                26 total sectors                 31 total sectors
+Unified disk layout (v0.8.0)
+Sector 2048:    VBR (2 sec)
+Sector 2050:    MNFS directory (7 files)
+Sector 2051:    LOADER.BIN  (3 sec)    — shared
+Sector 2054:    FS.BIN      (2 sec)    — release
+Sector 2056:    KERNEL.BIN  (7 sec)    — release
+Sector 2063:    SHELL.BIN   (12 sec)   — release
+Sector 2075:    FSD.BIN     (4 sec)    — debug
+Sector 2079:    KERNELD.BIN (10 sec)   — debug
+Sector 2089:    SHELLD.BIN  (12 sec)   — debug
+                52 total sectors (51 data + 1 directory)
 ```
 
 This is handled automatically by the build pipeline — `create-disk.ps1` reads
@@ -2040,11 +2039,11 @@ src/include/
 |---|------|--------|
 | 1 | `serial.inc` — serial port init + putc/puts/hex | ✅ Done (v0.7.0) |
 | 2 | `debug.inc` — DBG, DBG_REG, DBG_REGS macros | ✅ Done (v0.7.0) |
-| 3 | Build system — `build.bat /debug` and `-dDEBUG` flag | ✅ Done (v0.7.0) |
+| 3 | Build system — unified build with both variants | ✅ Done (v0.8.0) |
 | 4 | Kernel syscall tracing — named trace in `syscall_handler` | ✅ Done (v0.7.0) |
 | 5 | FS tracing — named trace in `fs_syscall_handler` | ✅ Done (v0.7.0) |
 | 6 | Hyper-V COM1 setup — `setup-vm.ps1` + `read-serial.bat` | ✅ Done (v0.7.0) |
-| 7 | Separate VHDs — `mini-os.vhd` + `mini-os-debug.vhd` | ✅ Done (v0.7.0) |
+| 7 | Unified VHD — boot menu selects release/debug at runtime | ✅ Done (v0.8.0) |
 | 7b | User-mode debug syscalls — SYS_DBG_PRINT/HEX16/REGS with caller tags | ✅ Done (v0.7.1) |
 | 7c | Shell debug tracing — `[SHL]` tagged messages at init, dispatch, errors | ✅ Done (v0.7.1) |
 | 8 | Assert macros — ASSERT, ASSERT_MAGIC, ASSERT_CF_CLEAR | 📋 Future |
@@ -2075,7 +2074,7 @@ Use `read-serial.bat` — it manages the entire lifecycle:
 
 ```cmd
 :: Build debug VHD, set up VM (first time), then capture serial:
-build.bat /debug
+build.bat
 setup-vm.bat          :: select "debug" when prompted for VHD variant
 read-serial.bat       :: stops VM, restarts, captures from first byte
 ```
