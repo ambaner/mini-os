@@ -1,9 +1,9 @@
-# LOADER.BIN — Stage 2 Boot Loader Design Document
+# LOADER.SYS — Stage 2 Boot Loader Design Document
 
 > **Module**: `src/loader/loader.asm`  
-> **Load address**: 0x0000:0x0800 (2 KB, FS.BIN region — LOADER is replaced after use)  
+> **Load address**: 0x0000:0x0800 (2 KB, FS.SYS region — LOADER is replaced after use)  
 > **Loaded by**: VBR (`src/boot/vbr.asm`)  
-> **Loads**: KERNEL.BIN (or KERNELD.BIN in debug)  
+> **Loads**: KERNEL.SYS (or KERNELD.SYS in debug)  
 > **MNEX magic**: `MNLD` (4 bytes)  
 > **Current size**: 3 sectors (1536 bytes)  
 > **Max size**: 16 sectors (8 KB, limited by memory region 0x0800–0x27FF)
@@ -12,7 +12,7 @@
 
 ## 1. Purpose
 
-LOADER.BIN is the stage-2 boot loader.  It runs after the VBR has loaded it
+LOADER.SYS is the stage-2 boot loader.  It runs after the VBR has loaded it
 into memory at 0x0800.  Its responsibilities are:
 
 1. **Enable the A20 gate** — three fallback methods (BIOS INT 15h, keyboard
@@ -25,7 +25,7 @@ into memory at 0x0800.  Its responsibilities are:
    selected boot mode) so downstream components can read it.
 
 The loader is a **transient** component: the kernel overwrites its memory at
-0x0800 with FS.BIN shortly after taking control.  By that point, LOADER's
+0x0800 with FS.SYS shortly after taking control.  By that point, LOADER's
 job is done.
 
 ---
@@ -37,11 +37,11 @@ job is done.
               │
               v
           VBR (partition sector 0–1)
-              │  Finds LOADER.BIN via MNFS directory lookup
+              │  Finds LOADER.SYS via MNFS directory lookup
               │  Loads to 0x0800
               v
        ┌──────────────┐
-       │  LOADER.BIN  │  ← this module
+       │  LOADER.SYS  │  ← this module
        │              │
        │  1. A20 gate │
        │  2. Boot menu│  (v0.8.0+)
@@ -50,10 +50,10 @@ job is done.
        └──────┬───────┘
               │  Jumps to 0x5000 + MNEX_HDR_SIZE (kernel entry)
               v
-          KERNEL.BIN (or KERNELD.BIN)
+          KERNEL.SYS (or KERNELD.SYS)
               │
-              ├── Loads FS.BIN (or FSD.BIN) at 0x0800  ← overwrites LOADER
-              ├── Loads SHELL.BIN (or SHELLD.BIN) at 0x3000
+              ├── Loads FS.SYS (or FSD.SYS) at 0x0800  ← overwrites LOADER
+              ├── Loads SHELL.SYS (or SHELLD.SYS) at 0x3000
               └── Jumps to shell
 ```
 
@@ -83,12 +83,12 @@ Address         Contents                    Notes
 0x0606          BIB: boot_mode              (v0.8.0+)
 0x0607–0x07FF   Free                        Unused gap
 
-0x0800–0x0FFF   ██ LOADER.BIN ██            ← we are here (3 sectors)
+0x0800–0x0FFF   ██ LOADER.SYS ██            ← we are here (3 sectors)
 0x1000–0x27FF   (available for growth)      LOADER can grow to 8 KB
 
 0x3000–0x4FFF   Scratch buffer              Used as temp buffer for
                                             MNFS directory read
-0x5000–0x6FFF   Kernel load target          KERNEL.BIN loaded here
+0x5000–0x6FFF   Kernel load target          KERNEL.SYS loaded here
 0x7C00–0x7DFF   VBR (still in memory)       Not used by LOADER
 0x7E00–0x9FBFF  Stack + free                Stack grows down from ~0x7C00
 ```
@@ -96,9 +96,9 @@ Address         Contents                    Notes
 ### Scratch Buffer Strategy
 
 The LOADER needs a 512-byte buffer to read the MNFS directory.  It uses 0x3000
-(the future SHELL.BIN region) as a scratch buffer — the shell hasn't been
+(the future SHELL.SYS region) as a scratch buffer — the shell hasn't been
 loaded yet, so this memory is free.  This same strategy is used by the kernel
-when loading FS.BIN.
+when loading FS.SYS.
 
 ---
 
@@ -206,13 +206,13 @@ filenames on the MNFS disk:
 
 | Module   | Release filename | Debug filename   | MNEX Magic |
 |----------|------------------|------------------|------------|
-| Kernel   | `KERNEL  BIN`    | `KERNELD BIN`    | `MNKN`     |
-| FS       | `FS      BIN`    | `FSD     BIN`    | `MNFS`     |
-| Shell    | `SHELL   BIN`    | `SHELLD  BIN`    | `MNEX`     |
-| Loader   | `LOADER  BIN`    | *(shared)*       | `MNLD`     |
+| Kernel   | `KERNEL  SYS`    | `KERNELD SYS`    | `MNKN`     |
+| FS       | `FS      SYS`    | `FSD     SYS`    | `MNFS`     |
+| Shell    | `SHELL   SYS`    | `SHELLD  SYS`    | `MNEX`     |
+| Loader   | `LOADER  SYS`    | *(shared)*       | `MNLD`     |
 
 The **Loader is not duplicated** — it is the same binary for both
-configurations.  The VBR always loads `LOADER  BIN`.
+configurations.  The VBR always loads `LOADER  SYS`.
 
 The `D` suffix convention (KERNELD, FSD, SHELLD) keeps the names
 recognizable while fitting within the 8-character limit.
@@ -226,8 +226,8 @@ The user's selection flows through the boot chain via the BIB:
   ──────                        ──────                        ─────
   User presses "2"              Reads BIB_BOOT_MODE           Reads BIB_BOOT_MODE
   → BIB_BOOT_MODE = 1           → boot_mode == 1?            (via SYS_GET_BIB)
-  → Load KERNELD.BIN             → Load FSD.BIN               → Banner shows
-                                  → Load SHELLD.BIN              "[Debug]" or
+  → Load KERNELD.SYS             → Load FSD.SYS               → Banner shows
+                                  → Load SHELLD.SYS              "[Debug]" or
                                                                  "[Release]"
 ```
 
@@ -237,10 +237,10 @@ The kernel reads `BIB_BOOT_MODE` at startup and selects filenames accordingly:
 ; Pseudocode (in kernel entry)
 cmp byte [BIB_BOOT_MODE], 1
 je .load_debug_fs
-    mov si, fname_fs            ; 'FS      BIN'
+    mov si, fname_fs            ; 'FS      SYS'
     jmp .do_load_fs
 .load_debug_fs:
-    mov si, fname_fsd           ; 'FSD     BIN'
+    mov si, fname_fsd           ; 'FSD     SYS'
 .do_load_fs:
     call find_file
 ```
@@ -288,13 +288,13 @@ With both variants on disk, the MNFS directory holds 7 files:
 MNFS Directory (partition sector 2):
   Entry  Name          Attr    Start   Sectors   Description
   ─────  ───────────   ────    ─────   ───────   ─────────────────────
-  0      LOADER  BIN   SYS     3       3         Stage-2 loader (shared)
-  1      FS      BIN   SYS     6       2         Filesystem (release)
-  2      KERNEL  BIN   SYS     8       7         Kernel (release, 3.5 KB)
-  3      SHELL   BIN   EXEC    15      12        Shell (release, 6 KB)
-  4      FSD     BIN   SYS     27      4         Filesystem (debug)
-  5      KERNELD BIN   SYS     31      11        Kernel (debug, 5.5 KB)
-  6      SHELLD  BIN   EXEC    42      12        Shell (debug, 6 KB)
+  0      LOADER  SYS   SYS     3       3         Stage-2 loader (shared)
+  1      FS      SYS   SYS     6       2         Filesystem (release)
+  2      KERNEL  SYS   SYS     8       7         Kernel (release, 3.5 KB)
+  3      SHELL   SYS   EXEC    15      12        Shell (release, 6 KB)
+  4      FSD     SYS   SYS     27      4         Filesystem (debug)
+  5      KERNELD SYS   SYS     31      11        Kernel (debug, 5.5 KB)
+  6      SHELLD  SYS   EXEC    42      12        Shell (debug, 6 KB)
 
   Total: 7 entries (max 15), 52 data sectors
 ```
@@ -326,7 +326,7 @@ Output: one `mini-os.vhd` containing both variants.  No more
 ### 7.1 Kernel Not Found
 
 If `find_file` fails (CF set), the loader calls `boot_fail` which:
-1. Prints `[FAIL] KERNEL.BIN` (or `KERNELD.BIN`) to screen
+1. Prints `[FAIL] KERNEL.SYS` (or `KERNELD.SYS`) to screen
 2. Dumps all registers (via `boot_msg.inc` with `BOOT_REGDUMP`)
 3. Halts the CPU (`cli` + `hlt` loop)
 
@@ -379,8 +379,8 @@ time.
 default=1
 timeout=5
 
-Release=KERNEL  BIN,FS      BIN,SHELL   BIN
-Debug=KERNELD BIN,FSD     BIN,SHELLD  BIN
+Release=KERNEL  SYS,FS      SYS,SHELL   SYS
+Debug=KERNELD SYS,FSD     SYS,SHELLD  SYS
 ```
 
 #### Implementation Requirements
@@ -447,13 +447,13 @@ warranted at this time.
 | `check_a20`      | A20 verification (wrap-around test)            |
 | `load_kernel`    | MNFS lookup + load + jump to kernel            |
 | `boot_menu`      | Boot menu display + selection *(v0.8.0+)*      |
-| `fname_kernel`   | 8.3 filename `'KERNEL  BIN'`                   |
-| `fname_kerneld`  | 8.3 filename `'KERNELD BIN'` *(v0.8.0+)*       |
+| `fname_kernel`   | 8.3 filename `'KERNEL  SYS'`                   |
+| `fname_kerneld`  | 8.3 filename `'KERNELD SYS'` *(v0.8.0+)*       |
 
 ### 10.4 Build Command
 
 ```
-nasm -f bin -I src/include/ -I src/loader/ -o build/boot/loader.bin src/loader/loader.asm
+nasm -f bin -I src/include/ -I src/loader/ -o build/boot/LOADER.SYS src/loader/loader.asm
 ```
 
 ---

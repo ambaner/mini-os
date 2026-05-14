@@ -328,8 +328,8 @@ out in release builds:
 %ifdef DEBUG
 
 ; DBG — Print a debug message to serial (compile-time string)
-;   Usage:  DBG "Loading FS.BIN"
-;   Output: [DBG] Loading FS.BIN\r\n    (to COM1)
+;   Usage:  DBG "Loading FS.SYS"
+;   Output: [DBG] Loading FS.SYS\r\n    (to COM1)
 ;
 ; This macro generates an inline string constant and calls serial_puts.
 ; The string is embedded in the code stream with a jmp to skip over it.
@@ -433,10 +433,10 @@ while (-not $reader.EndOfStream) { $reader.ReadLine() }
 ```
 [DBG] KERNEL: serial debug active       ← serial_init completed, COM1 ready
 [DBG] KERNEL: INT 0x80 installed        ← syscall jump table wired into IVT
-[SYS] READ_SECTOR AX=0400 BX=0983      ← FS.BIN loading directory sector
-[DBG] KERNEL: FS.BIN loaded at 0x0800   ← filesystem module in memory
+[SYS] READ_SECTOR AX=0400 BX=0983      ← FS.SYS loading directory sector
+[DBG] KERNEL: FS.SYS loaded at 0x0800   ← filesystem module in memory
 [DBG] KERNEL: INT 0x81 filesystem ready ← FS INT 0x81 handler installed
-[DBG] KERNEL: SHELL.BIN loaded          ← shell binary loaded at 0x3000
+[DBG] KERNEL: SHELL.SYS loaded          ← shell binary loaded at 0x3000
 [SYS] CLEAR_SCREEN AX=060C BX=0000     ← shell clearing screen
 [SYS] PRINT_STRING AX=010C BX=0000     ← shell printing banner
 [SYS] PRINT_STRING AX=010C BX=0000     ← shell printing prompt
@@ -507,11 +507,11 @@ Each line is explained:
 ```
 [DBG] KERNEL: serial debug active       ← serial_init completed, COM1 ready
 [DBG] KERNEL: INT 0x80 installed        ← syscall jump table wired into IVT
-[SYS] READ_SECTOR AX=0400 BX=0983      ← FS.BIN loading directory sector
-[DBG] KERNEL: FS.BIN loaded at 0x0800   ← filesystem module in memory
+[SYS] READ_SECTOR AX=0400 BX=0983      ← FS.SYS loading directory sector
+[DBG] KERNEL: FS.SYS loaded at 0x0800   ← filesystem module in memory
 [FS]  LIST_FILES                        ← FS caching directory during init
 [DBG] KERNEL: INT 0x81 filesystem ready ← FS INT 0x81 handler installed
-[DBG] KERNEL: SHELL.BIN loaded          ← shell binary loaded at 0x3000
+[DBG] KERNEL: SHELL.SYS loaded          ← shell binary loaded at 0x3000
 [SYS] CLEAR_SCREEN AX=060C BX=0000     ← shell clearing screen
 [SYS] PRINT_STRING AX=010C BX=0000     ← shell printing banner
 [SYS] PRINT_STRING AX=010C BX=0000     ← shell printing prompt
@@ -581,7 +581,7 @@ Consider the AH overlap bug that caused FS init to fail.  The FS module calls:
     int 0x80
 ```
 
-**Without tracing:** FS init fails.  `[FAIL] FS.BIN`.  Why?  No idea.
+**Without tracing:** FS init fails.  `[FAIL] FS.SYS`.  Why?  No idea.
 
 **With tracing (serial output):**
 
@@ -594,7 +594,7 @@ Consider the AH overlap bug that caused FS init to fail.  The FS module calls:
 
 ### 4.4 INT 0x81 (Filesystem) Tracing
 
-The same technique applies to the FS.BIN dispatcher, with its own 4-entry
+The same technique applies to the FS.SYS dispatcher, with its own 4-entry
 name table:
 
 ```nasm
@@ -737,10 +737,10 @@ An alternative design would include `serial.inc` in shell.asm and call
 ```
 [DBG] KERNEL: serial debug active       ← serial_init completed
 [DBG] KERNEL: INT 0x80 installed        ← syscall handler ready
-[SYS] READ_SECTOR AX=0400 BX=0983      ← kernel loading FS.BIN
-[DBG] KERNEL: FS.BIN loaded at 0x0800
+[SYS] READ_SECTOR AX=0400 BX=0983      ← kernel loading FS.SYS
+[DBG] KERNEL: FS.SYS loaded at 0x0800
 [DBG] KERNEL: INT 0x81 filesystem ready
-[DBG] KERNEL: SHELL.BIN loaded
+[DBG] KERNEL: SHELL.SYS loaded
 [SYS] CLEAR_SCREEN AX=060C BX=0000     ← shell clearing screen
 [SYS] DBG_PRINT AX=2000 BX=xxxx        ← shell calling SYS_DBG_PRINT
 [SHL] shell starting                    ← user-mode debug message!
@@ -919,12 +919,12 @@ MNFS) that it deserves its own macro:
 %endif
 ```
 
-**Usage (in kernel after loading FS.BIN):**
+**Usage (in kernel after loading FS.SYS):**
 
 ```nasm
-    ; Load FS.BIN to 0x0800
+    ; Load FS.SYS to 0x0800
     call load_mnex
-    ASSERT_MAGIC es:bx, 'MNFS', "FS.BIN header"
+    ASSERT_MAGIC es:bx, 'MNFS', "FS.SYS header"
 ```
 
 ### 5.5 Real-World Example: How Asserts Would Have Caught v0.6.0 Bugs
@@ -1224,7 +1224,7 @@ address prefixes:
 ```
 
 That's the MNFS directory header + first file entry, visible byte-by-byte.
-You can read 'LOADER  BIN' at 0x0820 in the ASCII values (4C=L, 4F=O, ...).
+You can read 'LOADER  SYS' at 0x0820 in the ASCII values (4C=L, 4F=O, ...).
 
 #### 7.4.3 Deposit — Write Bytes to Memory
 
@@ -1683,7 +1683,7 @@ Type ? for help, q to quit
 *0204.0207
 0204: 78 08 00 00
                                         ← IVT[0x81]: handler at 0000:0878
-                                           (FS.BIN fs_handler)
+                                           (FS.SYS fs_handler)
 
 *0800.081F
 0800: 4D 4E 46 53 01 04 17 00 FE 77 00 00 00 00 00 00
@@ -1697,8 +1697,8 @@ Type ? for help, q to quit
 0830: 02 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00
 0840: 46 53 20 20 20 20 20 20 42 49 4E 01 05 00 00 00
 0850: 02 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00
-                                        ← Entry 0: "LOADER  BIN" sector 3
-                                           Entry 1: "FS      BIN" sector 5
+                                        ← Entry 0: "LOADER  SYS" sector 3
+                                           Entry 1: "FS      SYS" sector 5
 
 Now let's enter a tiny test program at an unused address and run it.
 This program prints 'X' to the screen and returns:
@@ -1770,7 +1770,7 @@ The monitor is compact — true to Wozmon's spirit:
 
 Wozniak's original was 256 bytes on the 6502.  Our x86 version is larger
 (x86 instructions are longer, we have more features, and we include help
-text), but still fits comfortably within SHELL.BIN's growth room.
+text), but still fits comfortably within SHELL.SYS's growth room.
 
 ### 7.11 Always-On vs Debug-Only
 
@@ -1866,11 +1866,11 @@ Measured size increase with DEBUG enabled (v0.8.0):
 
 | Binary | Release | Debug | Increase | Max region |
 |--------|---------|-------|----------|------------|
-| LOADER.BIN | 1.5 KB (3 sec) | *(shared)* | — | 8 KB |
-| FS.BIN | 1 KB (2 sec) | 2 KB (4 sec) | +1 KB (serial funcs + FS tracing + asserts) | 8 KB |
-| MM.BIN | 0.5 KB (1 sec) | 1 KB (2 sec) | +0.5 KB (serial + MM call tracing) | 2 KB |
-| KERNEL.BIN | 4 KB (8 sec) | 6 KB (12 sec) | +2 KB (serial + tracing + debug syscalls) | 8 KB |
-| SHELL.BIN | 6.5 KB (13 sec) | 6.5 KB (13 sec) | 0 B | 8 KB |
+| LOADER.SYS | 1.5 KB (3 sec) | *(shared)* | — | 8 KB |
+| FS.SYS | 1 KB (2 sec) | 2 KB (4 sec) | +1 KB (serial funcs + FS tracing + asserts) | 8 KB |
+| MM.SYS | 0.5 KB (1 sec) | 1 KB (2 sec) | +0.5 KB (serial + MM call tracing) | 2 KB |
+| KERNEL.SYS | 4 KB (8 sec) | 6 KB (12 sec) | +2 KB (serial + tracing + debug syscalls) | 8 KB |
+| SHELL.SYS | 7 KB (14 sec) | 7 KB (14 sec) | 0 B | 8 KB |
 
 All binaries remain well within their 8 KB maximum allocation.  The sector
 counts in each binary's header are conditional (`%ifdef DEBUG`), so the loader
@@ -1885,9 +1885,9 @@ type:
 ```
 Component    Load address    Release size    Debug size     Region end
 ─────────────────────────────────────────────────────────────────────
-FS.BIN       0x0800          1 KB (2 sec)    2 KB (4 sec)   0x27FF (8 KB max)
-SHELL.BIN    0x3000          6 KB (12 sec)   6 KB (12 sec)  0x4FFF (8 KB max)
-KERNEL.BIN   0x5000          3.5 KB (7 sec)  5 KB (10 sec)  0x6FFF (8 KB max)
+FS.SYS       0x0800          1 KB (2 sec)    2 KB (4 sec)   0x27FF (8 KB max)
+SHELL.SYS    0x3000          7 KB (14 sec)   7 KB (14 sec)  0x4FFF (8 KB max)
+KERNEL.SYS   0x5000          3.5 KB (7 sec)  5 KB (10 sec)  0x6FFF (8 KB max)
 ```
 
 The addresses are compile-time constants in `src/include/memory.inc` and set
@@ -1902,13 +1902,13 @@ MNFS directory has 7 entries — the boot menu selects which set to load:
 Unified disk layout (v0.8.1)
 Sector 2048:    VBR (2 sec)
 Sector 2050:    MNFS directory (7 files)
-Sector 2051:    LOADER.BIN  (3 sec)    — shared
-Sector 2054:    FS.BIN      (2 sec)    — release
-Sector 2056:    KERNEL.BIN  (7 sec)    — release
-Sector 2063:    SHELL.BIN   (12 sec)   — release
-Sector 2075:    FSD.BIN     (4 sec)    — debug
-Sector 2079:    KERNELD.BIN (11 sec)   — debug
-Sector 2090:    SHELLD.BIN  (12 sec)   — debug
+Sector 2051:    LOADER.SYS  (3 sec)    — shared
+Sector 2054:    FS.SYS      (2 sec)    — release
+Sector 2056:    KERNEL.SYS  (7 sec)    — release
+Sector 2063:    SHELL.SYS   (14 sec)    release
+Sector 2075:    FSD.SYS     (4 sec)    — debug
+Sector 2079:    KERNELD.SYS (11 sec)   — debug
+Sector 2090:    SHELLD.SYS  (14 sec)    debug
                 53 total sectors (52 data + 1 directory)
 ```
 
@@ -2072,7 +2072,7 @@ src/kernel/
 |--------|---------|
 | LOADER | `%include "serial.inc"` + `%include "debug.inc"` + call `serial_init` early + add DBG calls |
 | KERNEL | `%include "serial.inc"` + `%include "debug.inc"` + `%include "kernel_stack.inc"` + syscall tracing + fault handlers + CANARY_INIT at boot + CANARY_CHECK at syscall entry |
-| FS.BIN | `%include "debug.inc"` (serial funcs from kernel via far call or duplicated) + DBG/ASSERT calls |
+| FS.SYS | `%include "debug.inc"` (serial funcs from kernel via far call or duplicated) + DBG/ASSERT calls |
 | SHELL | `%include "debug.inc"` + `mnmon` command (always-on) + canary_check in main loop |
 
 ### 10.3 Implementation Status
@@ -2133,10 +2133,10 @@ vmconnect localhost mini-os
 ```
 [DBG] KERNEL: serial debug active       ← serial_init completed, COM1 ready
 [DBG] KERNEL: INT 0x80 installed        ← syscall jump table wired into IVT
-[SYS] READ_SECTOR AX=0400 BX=0983      ← FS.BIN loading directory sector
-[DBG] KERNEL: FS.BIN loaded at 0x0800   ← filesystem module in memory
+[SYS] READ_SECTOR AX=0400 BX=0983      ← FS.SYS loading directory sector
+[DBG] KERNEL: FS.SYS loaded at 0x0800   ← filesystem module in memory
 [DBG] KERNEL: INT 0x81 filesystem ready ← FS INT 0x81 handler installed
-[DBG] KERNEL: SHELL.BIN loaded          ← shell binary loaded at 0x3000
+[DBG] KERNEL: SHELL.SYS loaded          ← shell binary loaded at 0x3000
 [SYS] CLEAR_SCREEN AX=060C BX=0000     ← shell clearing screen
 [SYS] DBG_PRINT AX=2000 BX=xxxx        ← shell calling debug print syscall
 [SHL] shell starting                    ← user-mode debug message

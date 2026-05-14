@@ -45,19 +45,19 @@ $IncludeDir = Join-Path $Root 'src\include'
 # Shared binaries
 $MbrBin     = Join-Path $BuildDir 'mbr.bin'
 $VbrBin     = Join-Path $BuildDir 'vbr.bin'
-$LoaderBin  = Join-Path $BuildDir 'loader.bin'
+$LoaderBin  = Join-Path $BuildDir 'loader.sys'
 
 # Release binaries
-$FsBin      = Join-Path $BuildDir 'fs.bin'
-$KernelBin  = Join-Path $BuildDir 'kernel.bin'
-$ShellBin   = Join-Path $BuildDir 'shell.bin'
-$MmBin      = Join-Path $BuildDir 'mm.bin'
+$FsBin      = Join-Path $BuildDir 'fs.sys'
+$KernelBin  = Join-Path $BuildDir 'kernel.sys'
+$ShellBin   = Join-Path $BuildDir 'shell.sys'
+$MmBin      = Join-Path $BuildDir 'mm.sys'
 
 # Debug binaries
-$FsDbgBin     = Join-Path $BuildDir 'fsd.bin'
-$KernelDbgBin = Join-Path $BuildDir 'kerneld.bin'
-$ShellDbgBin  = Join-Path $BuildDir 'shelld.bin'
-$MmDbgBin     = Join-Path $BuildDir 'mmd.bin'
+$FsDbgBin     = Join-Path $BuildDir 'fsd.sys'
+$KernelDbgBin = Join-Path $BuildDir 'kerneld.sys'
+$ShellDbgBin  = Join-Path $BuildDir 'shelld.sys'
+$MmDbgBin     = Join-Path $BuildDir 'mmd.sys'
 
 $RawImg     = Join-Path $BuildDir 'mini-os.img'
 $VhdOut     = Join-Path $BuildDir 'mini-os.vhd'

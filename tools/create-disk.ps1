@@ -9,8 +9,8 @@
       3. VBR written at the partition's first sector
       4. MNFS directory table at partition sector 2
       5. Files packed contiguously starting at partition sector 3:
-         LOADER.BIN, FS.BIN, KERNEL.BIN, SHELL.BIN, MM.BIN,
-         FSD.BIN, KERNELD.BIN, SHELLD.BIN, MMD.BIN
+         LOADER.SYS, FS.SYS, KERNEL.SYS, SHELL.SYS, MM.SYS,
+         FSD.SYS, KERNELD.SYS, SHELLD.SYS, MMD.SYS
       6. Partition start LBA stamped into VBR header at offset 9
 
     The MNFS directory table is generated automatically from the binaries.
@@ -24,31 +24,31 @@
     Path to the assembled VBR binary (multiple of 512 bytes).
 
 .PARAMETER LoaderPath
-    Path to the assembled LOADER.BIN binary (multiple of 512 bytes).
+    Path to the assembled LOADER.SYS binary (multiple of 512 bytes).
 
 .PARAMETER FsPath
-    Path to the assembled FS.BIN binary (release, multiple of 512 bytes).
+    Path to the assembled FS.SYS binary (release, multiple of 512 bytes).
 
 .PARAMETER KernelPath
-    Path to the assembled KERNEL.BIN binary (release, multiple of 512 bytes).
+    Path to the assembled KERNEL.SYS binary (release, multiple of 512 bytes).
 
 .PARAMETER ShellPath
-    Path to the assembled SHELL.BIN binary (release, multiple of 512 bytes).
+    Path to the assembled SHELL.SYS binary (release, multiple of 512 bytes).
 
 .PARAMETER MmPath
-    Path to the assembled MM.BIN binary (release, multiple of 512 bytes).
+    Path to the assembled MM.SYS binary (release, multiple of 512 bytes).
 
 .PARAMETER FsDbgPath
-    Path to the assembled FSD.BIN binary (debug, multiple of 512 bytes).
+    Path to the assembled FSD.SYS binary (debug, multiple of 512 bytes).
 
 .PARAMETER KernelDbgPath
-    Path to the assembled KERNELD.BIN binary (debug, multiple of 512 bytes).
+    Path to the assembled KERNELD.SYS binary (debug, multiple of 512 bytes).
 
 .PARAMETER ShellDbgPath
-    Path to the assembled SHELLD.BIN binary (debug, multiple of 512 bytes).
+    Path to the assembled SHELLD.SYS binary (debug, multiple of 512 bytes).
 
 .PARAMETER MmDbgPath
-    Path to the assembled MMD.BIN binary (debug, multiple of 512 bytes).
+    Path to the assembled MMD.SYS binary (debug, multiple of 512 bytes).
 
 .PARAMETER OutputPath
     Path for the output raw disk image.
@@ -134,15 +134,15 @@ $mmDbgBytes     = Read-Binary $MmDbgPath     'MMD'      'MNMM'
 $vbrSectors = $vbrBytes.Length / 512
 
 $files = @(
-    @{ Name = 'LOADER  BIN'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $loaderBytes }
-    @{ Name = 'FS      BIN'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $fsBytes }
-    @{ Name = 'KERNEL  BIN'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $kernelBytes }
-    @{ Name = 'SHELL   BIN'; Attr = $MNFS_ATTR_EXEC;   Bytes = $shellBytes }
-    @{ Name = 'MM      BIN'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $mmBytes }
-    @{ Name = 'FSD     BIN'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $fsDbgBytes }
-    @{ Name = 'KERNELD BIN'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $kernelDbgBytes }
-    @{ Name = 'SHELLD  BIN'; Attr = $MNFS_ATTR_EXEC;   Bytes = $shellDbgBytes }
-    @{ Name = 'MMD     BIN'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $mmDbgBytes }
+    @{ Name = 'LOADER  SYS'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $loaderBytes }
+    @{ Name = 'FS      SYS'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $fsBytes }
+    @{ Name = 'KERNEL  SYS'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $kernelBytes }
+    @{ Name = 'SHELL   SYS'; Attr = $MNFS_ATTR_SYSTEM -bor $MNFS_ATTR_EXEC; Bytes = $shellBytes }
+    @{ Name = 'MM      SYS'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $mmBytes }
+    @{ Name = 'FSD     SYS'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $fsDbgBytes }
+    @{ Name = 'KERNELD SYS'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $kernelDbgBytes }
+    @{ Name = 'SHELLD  SYS'; Attr = $MNFS_ATTR_SYSTEM -bor $MNFS_ATTR_EXEC; Bytes = $shellDbgBytes }
+    @{ Name = 'MMD     SYS'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $mmDbgBytes }
 )
 
 if ($files.Count -gt $MNFS_MAX_ENTRIES) {

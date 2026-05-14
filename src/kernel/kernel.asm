@@ -1,18 +1,18 @@
 ; =============================================================================
-; Mini-OS Kernel (KERNEL.BIN) - 16-bit Real-Mode Kernel
+; Mini-OS Kernel (KERNEL.SYS) - 16-bit Real-Mode Kernel
 ;
-; Loaded by LOADER.BIN into memory at 0x5000.  This is the first component
+; Loaded by LOADER.SYS into memory at 0x5000.  This is the first component
 ; in mini-os that acts as a proper kernel:
 ;
 ;   1. Installs a syscall handler at INT 0x80 in the IVT
-;   2. Finds and loads FS.BIN (filesystem module) from the MNFS directory
-;   3. Calls FS.BIN init to install INT 0x81
-;   4. Finds and loads SHELL.BIN (user-mode executable) from the MNFS directory
+;   2. Finds and loads FS.SYS (filesystem module) from the MNFS directory
+;   3. Calls FS.SYS init to install INT 0x81
+;   4. Finds and loads SHELL.SYS (user-mode executable) from the MNFS directory
 ;   5. Transfers control to the shell
 ;
 ; The shell and all user-mode programs interact with hardware exclusively
 ; through the INT 0x80 syscall interface.  Filesystem operations use INT 0x81
-; (provided by FS.BIN).
+; (provided by FS.SYS).
 ;
 ; Syscall convention:
 ;   AH = function number
@@ -28,7 +28,7 @@
 ;   Offset 0: 'MNKN'   Magic identifier (4 bytes)
 ;   Offset 4: dw N     Kernel size in sectors
 ;
-; Assembled with:  nasm -f bin -o kernel.bin src/kernel/kernel.asm
+; Assembled with:  nasm -f bin -o kernel.sys src/kernel/kernel.asm
 ; =============================================================================
 
 %include "bib.inc"
@@ -76,55 +76,55 @@ kernel_start:
     ; In release builds, CANARY_INIT expands to nothing (0 bytes).
     CANARY_INIT
 
-    ; --- Load FS.BIN (filesystem module) at 0x0800 ---------------------------
-    ; FS.BIN replaces LOADER.BIN in memory (LOADER's job is done).
+    ; --- Load FS.SYS (filesystem module) at 0x0800 ---------------------------
+    ; FS.SYS replaces LOADER.SYS in memory (LOADER's job is done).
     ; Use 0x3000 (shell area) as scratch buffer for directory read.
     ; Select filename based on boot mode (release=FS, debug=FSD).
     mov bx, SHELL_OFF               ; Scratch buffer (shell not loaded yet)
     cmp byte [BIB_BOOT_MODE], 1
     je .use_fsd
-    mov si, fname_fs                ; "FS      BIN"
+    mov si, fname_fs                ; "FS      SYS"
     jmp .do_find_fs
 .use_fsd:
-    mov si, fname_fsd               ; "FSD     BIN"
+    mov si, fname_fsd               ; "FSD     SYS"
 .do_find_fs:
     call find_file
     jc .fs_find_fail
 
     ; EAX = partition-relative start sector, CX = size in sectors
-    mov bx, LOADER_OFF              ; Load FS.BIN at 0x0800 (LOADER's old slot)
+    mov bx, LOADER_OFF              ; Load FS.SYS at 0x0800 (LOADER's old slot)
     mov ecx, 'MNFS'                 ; Expected magic signature
     mov dh, 16                      ; Maximum sector count
     call load_mnex
     jc .fs_load_fail
-    ASSERT_MAGIC LOADER_OFF, 'MNFS', "FS.BIN magic invalid after load"
+    ASSERT_MAGIC LOADER_OFF, 'MNFS', "FS.SYS magic invalid after load"
 
     mov si, msg_fs
     call boot_ok
-    DBG "KERNEL: FS.BIN loaded at 0x0800"
+    DBG "KERNEL: FS.SYS loaded at 0x0800"
 
-    ; --- Initialize FS.BIN (installs INT 0x81) --------------------------------
-    ; FS.BIN's init entry point is at offset 6 (right after the 6-byte header).
+    ; --- Initialize FS.SYS (installs INT 0x81) --------------------------------
+    ; FS.SYS's init entry point is at offset 6 (right after the 6-byte header).
     call LOADER_OFF + MNEX_HDR_SIZE
     jc .fs_init_fail
-    ASSERT_CF_CLEAR "FS.BIN init returned error"
+    ASSERT_CF_CLEAR "FS.SYS init returned error"
 
     mov si, msg_fs_init
     call boot_ok
     DBG "KERNEL: INT 0x81 filesystem ready"
 
-    ; --- Load MM.BIN (memory manager) at 0x2800 ------------------------------
-    ; MM.BIN provides dynamic heap allocation via INT 0x82.
-    ; Use 0x2000 as scratch buffer for directory read (safe — above FS.BIN,
+    ; --- Load MM.SYS (memory manager) at 0x2800 ------------------------------
+    ; MM.SYS provides dynamic heap allocation via INT 0x82.
+    ; Use 0x2000 as scratch buffer for directory read (safe — above FS.SYS,
     ; below MM target at 0x2800).
     ; Select filename based on boot mode (release=MM, debug=MMD).
     mov bx, 0x2000                  ; Scratch buffer
     cmp byte [BIB_BOOT_MODE], 1
     je .use_mmd
-    mov si, fname_mm                ; "MM      BIN"
+    mov si, fname_mm                ; "MM      SYS"
     jmp .do_find_mm
 .use_mmd:
-    mov si, fname_mmd               ; "MMD     BIN"
+    mov si, fname_mmd               ; "MMD     SYS"
 .do_find_mm:
     call find_file
     jc .mm_find_fail
@@ -135,14 +135,14 @@ kernel_start:
     mov dh, MM_MAX_SECTORS          ; Maximum sector count (4)
     call load_mnex
     jc .mm_load_fail
-    ASSERT_MAGIC MM_OFF, 'MNMM', "MM.BIN magic invalid after load"
+    ASSERT_MAGIC MM_OFF, 'MNMM', "MM.SYS magic invalid after load"
 
     mov si, msg_mm
     call boot_ok
-    DBG "KERNEL: MM.BIN loaded at 0x2800"
+    DBG "KERNEL: MM.SYS loaded at 0x2800"
 
-    ; --- Initialize MM.BIN (installs INT 0x82) --------------------------------
-    ; MM.BIN's init entry point is at offset 6 (right after the 6-byte header).
+    ; --- Initialize MM.SYS (installs INT 0x82) --------------------------------
+    ; MM.SYS's init entry point is at offset 6 (right after the 6-byte header).
     call MM_OFF + MNEX_HDR_SIZE
     jc .mm_init_fail
 
@@ -150,17 +150,17 @@ kernel_start:
     call boot_ok
     DBG "KERNEL: INT 0x82 memory manager ready"
 
-    ; --- Load SHELL.BIN at 0x3000 --------------------------------------------
+    ; --- Load SHELL.SYS at 0x3000 --------------------------------------------
     ; Use 0x2000 as scratch buffer for directory read (safe — between LOADER
-    ; area and SHELL area, and FS.BIN at 0x0800 is only ~1 KB).
+    ; area and SHELL area, and FS.SYS at 0x0800 is only ~1 KB).
     ; Select filename based on boot mode (release=SHELL, debug=SHELLD).
     mov bx, 0x2000                  ; Scratch buffer
     cmp byte [BIB_BOOT_MODE], 1
     je .use_shelld
-    mov si, fname_shell             ; "SHELL   BIN"
+    mov si, fname_shell             ; "SHELL   SYS"
     jmp .do_find_shell
 .use_shelld:
-    mov si, fname_shelld            ; "SHELLD  BIN"
+    mov si, fname_shelld            ; "SHELLD  SYS"
 .do_find_shell:
     call find_file
     jc .shell_find_fail
@@ -171,11 +171,11 @@ kernel_start:
     mov dh, 32                      ; Maximum sector count
     call load_mnex
     jc .shell_load_fail
-    ASSERT_MAGIC SHELL_OFF, 'MNEX', "SHELL.BIN magic invalid after load"
+    ASSERT_MAGIC SHELL_OFF, 'MNEX', "SHELL.SYS magic invalid after load"
 
     mov si, msg_shell
     call boot_ok
-    DBG "KERNEL: SHELL.BIN loaded, jumping to shell"
+    DBG "KERNEL: SHELL.SYS loaded, jumping to shell"
 
     ; --- Transfer control to shell --------------------------------------------
     ; The shell is a user-mode executable.  When it calls INT 0x80, the CPU

@@ -16,7 +16,7 @@
 ;   %define ASSERT_HAS_SCREEN        ; optional — if puts is available
 ;   %include "debug.inc"
 ;
-;   DBG "Loading FS.BIN"          ; → [DBG] Loading FS.BIN\r\n  (to COM1)
+;   DBG "Loading FS.SYS"          ; → [DBG] Loading FS.SYS\r\n  (to COM1)
 ;   DBG_REG "AX", ax              ; → AX=1234                   (to COM1)
 ;   DBG_REGS                       ; → AX=xxxx BX=xxxx ... \r\n (to COM1)
 ;   ASSERT cx, ne, 0, "sector count must not be zero"
@@ -34,7 +34,7 @@
 ; Generates an inline string with a jmp to skip over it.
 ; Output format: [DBG] <message>\r\n
 ;
-; Usage:  DBG "Loading FS.BIN"
+; Usage:  DBG "Loading FS.SYS"
 ; -----------------------------------------------------------------------------
 %macro DBG 1
     jmp %%after

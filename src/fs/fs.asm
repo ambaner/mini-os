@@ -1,13 +1,13 @@
 ; =============================================================================
-; Mini-OS Filesystem Module (FS.BIN) - MNFS Driver
+; Mini-OS Filesystem Module (FS.SYS) - MNFS Driver
 ;
-; Loaded by KERNEL.BIN into memory at 0x0800 (reusing LOADER.BIN's slot).
+; Loaded by KERNEL.SYS into memory at 0x0800 (reusing LOADER.SYS's slot).
 ; Provides filesystem services via INT 0x81 — fully decoupled from the
 ; kernel's INT 0x80 interface.
 ;
-; FS.BIN uses the kernel's INT 0x80 SYS_READ_SECTOR for disk I/O, creating
+; FS.SYS uses the kernel's INT 0x80 SYS_READ_SECTOR for disk I/O, creating
 ; a clean layered architecture:
-;   User mode (SHELL)  →  INT 0x81  →  FS.BIN  →  INT 0x80  →  KERNEL  →  BIOS
+;   User mode (SHELL)  →  INT 0x81  →  FS.SYS  →  INT 0x80  →  KERNEL  →  BIOS
 ;
 ; Initialization:
 ;   The kernel calls our init entry point (offset 6) after loading.
@@ -25,7 +25,7 @@
 ;
 ; See doc/FILESYSTEM.md for the complete specification.
 ;
-; Assembled with:  nasm -f bin -o fs.bin src/fs/fs.asm
+; Assembled with:  nasm -f bin -o fs.sys src/fs/fs.asm
 ; =============================================================================
 
 %include "bib.inc"
@@ -37,7 +37,7 @@
 [ORG 0x0800]                        ; Loaded at LOADER's old address
 
 ; =============================================================================
-; FS.BIN HEADER
+; FS.SYS HEADER
 ; =============================================================================
 fs_magic        db 'MNFS'           ; Magic identifier — filesystem module
 %ifdef DEBUG
@@ -49,7 +49,7 @@ fs_sectors      dw 2                ; Module size in sectors (release build)
 ; =============================================================================
 ; fs_init — Initialize the filesystem module
 ;
-; Called by the kernel after loading FS.BIN into memory.
+; Called by the kernel after loading FS.SYS into memory.
 ;   1. Installs INT 0x81 handler in the IVT
 ;   2. Reads the MNFS directory via INT 0x80 SYS_READ_SECTOR
 ;   3. Validates the directory magic
@@ -188,7 +188,7 @@ fs_syscall_handler:
 
     ; Set up source: DS:SI → our cached directory
     push cs
-    pop ds                          ; DS = CS (FS.BIN's segment)
+    pop ds                          ; DS = CS (FS.SYS's segment)
     mov si, dir_cache
 
     ; Set up destination: ES:BX → caller's buffer

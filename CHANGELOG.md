@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.9.5] - 2026-05-14
+
+### Changed
+- **All system binaries renamed `.BIN` to `.SYS`** - LOADER.SYS, KERNEL.SYS,
+  FS.SYS, MM.SYS, SHELL.SYS (and debug variants FSD.SYS, KERNELD.SYS,
+  SHELLD.SYS, MMD.SYS).
+- **MNFS directory entries** updated with new 8.3 filenames
+- **Build pipeline** outputs `.sys` files instead of `.bin`
+- **VBR** looks up `LOADER  SYS` instead of `LOADER  BIN`
+- **Loader** looks up `KERNEL  SYS` / `KERNELD SYS`
+- **Kernel** looks up `FS      SYS`, `MM      SYS`, `SHELL   SYS` (and debug variants)
+- **All source comments** updated to use `.SYS` naming
+- **Shell memory map** display shows `.SYS` names
+- **Establishes `.MNX` convention** for future user-mode executables
+- **Documented extension conventions** in DESIGN.md (new section 2.10)
+- **Clarified SHELL.SYS rationale** - uses `.SYS` because it is kernel-loaded
+  at boot into system memory; `.MNX` reserved for on-demand user programs
+- **SHELL.SYS attribute** changed from `ATTR_EXEC` (0x02) to
+  `ATTR_SYSTEM | ATTR_EXEC` (0x03); `dir` displays combined type as "SYS+X"
+- **SHELL.SYS** 13 to 14 sectors (added combined-attribute display code)
+
+---
+
 ## [0.9.2] — 2026-05-14
 
 ### Added

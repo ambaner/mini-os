@@ -79,29 +79,29 @@ Address       Size      Contents                 Lifetime
 
 0x0000:0x0610   496 B   (Unused gap)              Available for future use
 
-0x0000:0x0800  8192 B   LOADER.BIN (boot-time)    LOADER runs here during
+0x0000:0x0800  8192 B   LOADER.SYS (boot-time)    LOADER runs here during
                (8 KB     (3 sectors = 1.5 KB used) boot, then dead.  KERNEL
-                max)                                overwrites with FS.BIN ↓
+                max)                                overwrites with FS.SYS ↓
 
-                         FS.BIN (runtime)          Permanent after kernel
+                         FS.SYS (runtime)          Permanent after kernel
                          (2 sectors = 1 KB used,   init.  Installs INT 0x81
                           7 KB growth room)         filesystem handler, caches
                                                     MNFS directory (512 B)
 
-0x0000:0x2800  2048 B   MM.BIN                    Permanent (OS runtime)
+0x0000:0x2800  2048 B   MM.SYS                    Permanent (OS runtime)
                (2 KB    (1 sector = 512 B release, Loaded by KERNEL, installs
                 max)     2 sectors = 1 KB debug)    INT 0x82 memory manager,
                                                     manages heap at 0x8000
 
-0x0000:0x3000  8192 B   SHELL.BIN                 Permanent (OS runtime)
+0x0000:0x3000  8192 B   SHELL.SYS                 Permanent (OS runtime)
                (8 KB     (12 sectors = 6 KB used,  Loaded by KERNEL, runs
                 max)      2 KB growth room)         as user-mode executable
                                                     via INT 0x80 syscalls
 
-0x0000:0x5000  8192 B   KERNEL.BIN                Permanent (OS runtime)
+0x0000:0x5000  8192 B   KERNEL.SYS                Permanent (OS runtime)
                (8 KB     (8 sectors = 4 KB used,   Loaded by LOADER, installs
                 max)      4 KB growth room)         INT 0x80 syscall handler,
-                                                    loads FS.BIN + MM.BIN + SHELL
+                                                    loads FS.SYS + MM.SYS + SHELL
 
 0x0000:0x7000  3072 B   Stack zone (grows ↓)      Active (see §3)
                (3 KB)    SP starts at 0x7C00,
@@ -115,7 +115,7 @@ Address       Size      Contents                 Lifetime
                (16 sec   (temporary staging area)  before copying to 0x7C00
                 max)                                — dead after boot
 
-0x0000:0x8000  30720 B  HEAP (managed by MM.BIN)  Dynamic allocation region
+0x0000:0x8000  30720 B  HEAP (managed by MM.SYS)  Dynamic allocation region
                (30 KB)   MCB-style block headers,   Initialized as single free
                           first-fit allocation,      block by mm_init; available
                           INT 0x82 API               via INT 0x82 MEM_ALLOC/FREE
@@ -150,15 +150,15 @@ available but is sometimes used by BIOS for temporary purposes during POST.
 We chose 0x0600 to avoid any possible conflict, while keeping it low enough
 that no boot binary would be placed there.
 
-#### FS.BIN / LOADER.BIN — 0x0800 (up to 8 KB)
+#### FS.SYS / LOADER.SYS — 0x0800 (up to 8 KB)
 
 This memory region serves a dual purpose:
 
-1. **Boot time**: The VBR loads LOADER.BIN here.  The loader enables A20, loads
+1. **Boot time**: The VBR loads LOADER.SYS here.  The loader enables A20, loads
    the kernel to 0x5000, and jumps to it.  After the jump, LOADER's code is dead.
 
-2. **Runtime**: The kernel then loads FS.BIN to the same address (0x0800),
-   overwriting the now-dead loader.  FS.BIN installs the INT 0x81 filesystem
+2. **Runtime**: The kernel then loads FS.SYS to the same address (0x0800),
+   overwriting the now-dead loader.  FS.SYS installs the INT 0x81 filesystem
    handler and caches the MNFS directory table in a 512-byte buffer.
 
 **Contents** (v0.6.0): INT 0x81 dispatcher with 4 functions (list, find, read,
@@ -167,17 +167,17 @@ get_info), 512-byte directory cache, initialization routine.
 **Current size**: 2 sectors (1024 bytes).  **Maximum**: 16 sectors (8192 bytes)
 ending at 0x27FF.
 
-**Lifetime**: Permanent after kernel init — FS.BIN must remain resident because
+**Lifetime**: Permanent after kernel init — FS.SYS must remain resident because
 all user-mode filesystem access (e.g., `dir` command) calls INT 0x81.
 
-#### KERNEL.BIN — 0x5000 (up to 8 KB)
+#### KERNEL.SYS — 0x5000 (up to 8 KB)
 
-The loader loads KERNEL.BIN to linear address 0x5000 (segment 0x0000, offset
+The loader loads KERNEL.SYS to linear address 0x5000 (segment 0x0000, offset
 0x5000).  The kernel is assembled with `[ORG 0x5000]`.
 
 **Contents** (v0.6.0): INT 0x80 IVT installation, 27 syscall handlers wrapping
 BIOS interrupts (video, keyboard, disk, memory, CPUID, BDA access, etc.),
-find_file.inc for MNFS directory lookup, loads FS.BIN and SHELL.BIN from disk,
+find_file.inc for MNFS directory lookup, loads FS.SYS and SHELL.SYS from disk,
 version info, and utility functions.
 
 **Current size**: 7 sectors (3584 bytes), ending at 0x5DFF.  **Maximum**:
@@ -186,9 +186,9 @@ version info, and utility functions.
 **Lifetime**: Permanent — the kernel must remain resident for the entire OS
 runtime because the shell and all user-mode programs call into it via INT 0x80.
 
-#### SHELL.BIN — 0x3000 (up to 8 KB)
+#### SHELL.SYS — 0x3000 (up to 8 KB)
 
-The kernel loads SHELL.BIN to linear address 0x3000 (segment 0x0000, offset
+The kernel loads SHELL.SYS to linear address 0x3000 (segment 0x0000, offset
 0x3000).  The shell is assembled with `[ORG 0x3000]`.
 
 **Contents** (v0.6.0): Command loop, all shell commands (sysinfo, mem, dir, ver,
@@ -199,7 +199,7 @@ INT 0x81), strcmp, readline, string constants, and runtime data buffers.
 16 sectors (8192 bytes), ending at 0x4FFF.  The kernel at 0x5000 sets the
 upper boundary.
 
-**Runtime data buffers within SHELL.BIN**:
+**Runtime data buffers within SHELL.SYS**:
 
 | Buffer | Size | Purpose |
 |--------|------|---------|
@@ -212,7 +212,7 @@ upper boundary.
 | `cpuid_feat_edx` | 4 B | CPUID feature flags (EDX) |
 | `cpuid_feat_ecx` | 4 B | CPUID feature flags (ECX) |
 
-These buffers are embedded within the SHELL.BIN binary (in the `.data`-like
+These buffers are embedded within the SHELL.SYS binary (in the `.data`-like
 trailing section) and loaded into memory as part of the shell.  They are
 initialized to zero by the `times N db 0` directives and written at runtime
 by the corresponding commands.
@@ -224,7 +224,7 @@ to 0x7C00 (overwriting the MBR code).  The VBR runs at 0x7C00, same as the
 MBR did — this is by design so the VBR can be assembled with `[ORG 0x7C00]`,
 matching the standard boot sector origin.
 
-After the VBR jumps to LOADER.BIN, the memory at 0x7C00 is no longer needed.
+After the VBR jumps to LOADER.SYS, the memory at 0x7C00 is no longer needed.
 However, it is not reusable because the stack grows downward *into* this
 region (see §3).
 
@@ -254,11 +254,11 @@ first `push` writes to 0x7BFE (SP decrements by 2 before writing).
 ### 3.2 Available Stack Space
 
 The stack can grow from 0x7C00 downward.  The nearest structure below it is
-KERNEL.BIN, which currently extends to 0x57FF (4 sectors × 512 = 2048 bytes
+KERNEL.SYS, which currently extends to 0x57FF (4 sectors × 512 = 2048 bytes
 from 0x5000).
 
 ```
-                    KERNEL.BIN end   Stack bottom     SP initial
+                    KERNEL.SYS end   Stack bottom     SP initial
                     (current)        (safe limit)     (top)
                          │                │               │
   0x5000 ──── 0x57FF ──── 0x7000 ──────── 0x7BFE ──── 0x7C00
@@ -266,11 +266,11 @@ from 0x5000).
 ```
 
 **Current available stack**: 0x7C00 − 0x4400 = **14,336 bytes (14 KB)**.
-This is the gap between SHELL.BIN's current end and SP's initial value.
+This is the gap between SHELL.SYS's current end and SP's initial value.
 
 **Safe stack budget**: ~3 KB (0x7000–0x7C00).  We use 0x7000 as the
 conservative lower bound, leaving 11 KB of headroom between the end of
-SHELL.BIN and the bottom of the safe stack zone.  As SHELL.BIN grows
+SHELL.SYS and the bottom of the safe stack zone.  As SHELL.SYS grows
 toward its 16 KB maximum (ending at 0x6FFF), the stack zone tightens to
 exactly the 3 KB budget.
 
@@ -343,7 +343,7 @@ helps identify what can be reclaimed:
 Time →    MBR runs    VBR runs    LOADER runs    KERNEL init    SHELL runs
           ────────    ────────    ───────────    ───────────    ──────────
 0x0600    (free)      BIB ████    BIB ████████   BIB ████████   BIB ████████
-0x0800    (free)      (free)      LOADER █████   FS.BIN █████   FS.BIN █████
+0x0800    (free)      (free)      LOADER █████   FS.SYS █████   FS.SYS █████
 0x3000    (free)      (free)      (free)         SHELL ██████   SHELL ██████
 0x5000    (free)      (free)      (free)         KERNEL █████   KERNEL █████
 0x7C00    MBR █████   VBR ██████  (dead code)    (dead code)    (dead code)
@@ -357,14 +357,14 @@ Stack     ████████    ████████    ████�
 
 | Region | Address | Size | Notes |
 |--------|---------|------|-------|
-| FS.BIN growth room | 0x0C00–0x27FF | 7 KB | FS.BIN is 1 KB, rest unused |
+| FS.SYS growth room | 0x0C00–0x27FF | 7 KB | FS.SYS is 1 KB, rest unused |
 | FS–shell gap | 0x2800–0x2FFF | 2 KB | Never used |
 | VBR code | 0x7C00–0x7FFF | 1 KB | Overlaps stack zone |
 | VBR staging buffer | 0x7E00–0x9DFF | 8 KB | Fully free |
 
 **Total reclaimable**: ~18 KB (not counting VBR area which overlaps with
 stack).  A future memory manager could return these regions to a free pool.
-Note: 0x0800 is now occupied permanently by FS.BIN (was reclaimable in v0.4.0).
+Note: 0x0800 is now occupied permanently by FS.SYS (was reclaimable in v0.4.0).
 
 ---
 
@@ -386,10 +386,10 @@ DAP Structure (16 bytes):
 | Stage | DAP location | Loads what | Destination |
 |-------|-------------|------------|-------------|
 | MBR | Within MBR code (~0x7D4E) | VBR sectors | 0x0000:0x7E00 |
-| VBR | Within VBR code (~0x7E98) | LOADER.BIN | 0x0000:0x0800 |
-| LOADER | Within LOADER code (~0x0907) | KERNEL.BIN | 0x0000:0x5000 |
-| KERNEL | Within KERNEL code | FS.BIN | 0x0000:0x0800 |
-| KERNEL | Within KERNEL code | SHELL.BIN | 0x0000:0x3000 |
+| VBR | Within VBR code (~0x7E98) | LOADER.SYS | 0x0000:0x0800 |
+| LOADER | Within LOADER code (~0x0907) | KERNEL.SYS | 0x0000:0x5000 |
+| KERNEL | Within KERNEL code | FS.SYS | 0x0000:0x0800 |
+| KERNEL | Within KERNEL code | SHELL.SYS | 0x0000:0x3000 |
 
 DAP structures are part of their respective binaries and share the same
 lifetime.  They are modified in place (sector count, LBA fields) during the
@@ -445,7 +445,7 @@ the CPU switches to protected mode or uses unreal mode.
 
 ### 8.1 The A20 Gate (Current — v0.3.0+)
 
-The A20 gate is enabled by LOADER.BIN at boot.  This is a prerequisite for
+The A20 gate is enabled by LOADER.SYS at boot.  This is a prerequisite for
 any memory access above 1 MB, but enabling A20 alone is **not sufficient**.
 It simply unmasks address line 20 so the CPU does not wrap at 1 MB.
 
@@ -548,7 +548,7 @@ No memory protection         Page-level protection, rings 0–3
 
 ## 9. Design Constraints and Trade-offs
 
-### Why not load SHELL.BIN higher (e.g., 0x8000)?
+### Why not load SHELL.SYS higher (e.g., 0x8000)?
 
 Loading above 0x7C00 would conflict with the VBR staging buffer at 0x7E00.
 While the staging buffer is transient, the MBR is still using it when the
@@ -558,7 +558,7 @@ transient boot buffers above 0x7C00 creates a clean separation.
 ### Why not use segment registers to get more address space?
 
 We could use non-zero segment bases to spread binaries across the full 1 MB.
-For example, loading SHELL.BIN at 0x5000:0x0000 (linear 0x50000).  However:
+For example, loading SHELL.SYS at 0x5000:0x0000 (linear 0x50000).  However:
 
 - **Complexity**: Every pointer must account for the segment.  A bug in
   segment setup means silent memory corruption.
@@ -570,7 +570,7 @@ For example, loading SHELL.BIN at 0x5000:0x0000 (linear 0x50000).  However:
 
 ### Why is the LOADER–SHELL gap (0x2800–0x2FFF) wasted?
 
-It is not wasted — it is **growth room**.  If LOADER.BIN grows beyond 2
+It is not wasted — it is **growth room**.  If LOADER.SYS grows beyond 2
 sectors (which it will when it gains filesystem parsing or protected-mode
 switching), it expands toward 0x27FF.  The 2 KB gap is a buffer zone that
 prevents a larger loader from colliding with the shell.
@@ -590,12 +590,12 @@ prevents a larger loader from colliding with the shell.
 │ 0x0500   │ 0x05FF   │ Free (A20 test uses) │ 256 B      │
 │ 0x0600   │ 0x060F   │ Boot Info Block      │ 16 B       │
 │ 0x0610   │ 0x07FF   │ (unused)             │ 496 B      │
-│ 0x0800   │ 0x0BFF   │ FS.BIN (2 sec)       │ 1 KB       │
+│ 0x0800   │ 0x0BFF   │ FS.SYS (2 sec)       │ 1 KB       │
 │ 0x0C00   │ 0x27FF   │ (FS growth room)     │ 7 KB       │
 │ 0x2800   │ 0x2FFF   │ (gap / buffer zone)  │ 2 KB       │
-│ 0x3000   │ 0x47FF   │ SHELL.BIN (12 sec)   │ 6 KB       │
+│ 0x3000   │ 0x47FF   │ SHELL.SYS (14 sec)   │ 6 KB       │
 │ 0x4800   │ 0x4FFF   │ (shell growth)       │ 2 KB       │
-│ 0x5000   │ 0x5DFF   │ KERNEL.BIN (7 sec)   │ 3.5 KB     │
+│ 0x5000   │ 0x5DFF   │ KERNEL.SYS (7 sec)   │ 3.5 KB     │
 │ 0x5E00   │ 0x6FFF   │ (kernel growth)      │ 4.5 KB     │
 │ 0x7000   │ 0x7BFF   │ Stack zone           │ 3 KB       │
 │ 0x7C00   │ 0x7FFF   │ VBR (boot-time)      │ 1 KB       │
@@ -622,9 +622,9 @@ pre-allocated region.
 
 | Component | Address | Release | Debug | Growth room left |
 |-----------|---------|---------|-------|-----------------|
-| FS.BIN | 0x0800 | 1 KB (2 sec) | 2 KB (4 sec) | 6 KB |
-| SHELL.BIN | 0x3000 | 6 KB (12 sec) | 6 KB (12 sec) | 2 KB |
-| KERNEL.BIN | 0x5000 | 3.5 KB (7 sec) | 5 KB (10 sec) | 4.5 KB |
+| FS.SYS | 0x0800 | 1 KB (2 sec) | 2 KB (4 sec) | 6 KB |
+| SHELL.SYS | 0x3000 | 7 KB (14 sec) | 7 KB (14 sec) | 2 KB |
+| KERNEL.SYS | 0x5000 | 3.5 KB (7 sec) | 5 KB (10 sec) | 4.5 KB |
 
 Each binary's header contains a conditional sector count (`%ifdef DEBUG`),
 so the loader reads the correct size at runtime.  No code changes are needed

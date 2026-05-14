@@ -14,7 +14,7 @@ mini-os.  It manages a contiguous heap region in conventional memory, offering
 allocate/free semantics through `INT 0x82` software interrupts.
 
 Today, every mini-os component uses statically placed memory — KERNEL at 0x5000,
-SHELL at 0x3000, FS.BIN at 0x0800.  This works when the number of components is
+SHELL at 0x3000, FS.SYS at 0x0800.  This works when the number of components is
 fixed and known at build time.  But the moment you need a variable-size buffer,
 a dynamically loaded program, or a data structure that grows at runtime, static
 placement breaks down.
@@ -31,7 +31,7 @@ runtime.
 | Minimum allocation   | 4 bytes usable (8-byte block including header)    |
 | Alignment            | Word-aligned (2-byte)                             |
 | Algorithm            | First-fit with forward coalescing                 |
-| Binary               | `MM.BIN` loaded at `0x2800` (max 2 KB)            |
+| Binary               | `MM.SYS` loaded at `0x2800` (max 2 KB)            |
 | Interface            | `INT 0x82` (AH = function selector)               |
 | Overhead per block   | 4 bytes (size + flags + magic)                    |
 
@@ -161,18 +161,18 @@ Address       Size      Contents                 Lifetime
 
 0x0000:0x0610   496 B   (Unused gap)              Available
 
-0x0000:0x0800  8192 B   FS.BIN                    Permanent (runtime)
-               (8 KB)    INT 0x81 filesystem       (LOADER.BIN here at boot,
+0x0000:0x0800  8192 B   FS.SYS                    Permanent (runtime)
+               (8 KB)    INT 0x81 filesystem       (LOADER.SYS here at boot,
                                                     then overwritten by kernel)
 
-0x0000:0x2800  2048 B   MNMM.BIN   ← NEW         Permanent (runtime)
+0x0000:0x2800  2048 B   MNMM.SYS   ← NEW         Permanent (runtime)
                (2 KB)    INT 0x82 memory manager   Loaded by KERNEL after
-                                                    FS.BIN, before SHELL
+                                                    FS.SYS, before SHELL
 
-0x0000:0x3000  8192 B   SHELL.BIN                 Permanent (runtime)
+0x0000:0x3000  8192 B   SHELL.SYS                 Permanent (runtime)
                (8 KB)
 
-0x0000:0x5000  8192 B   KERNEL.BIN                Permanent (runtime)
+0x0000:0x5000  8192 B   KERNEL.SYS                Permanent (runtime)
                (8 KB)
 
 0x0000:0x7000  3072 B   Stack (grows ↓)           Active
@@ -231,11 +231,11 @@ detects stack overflow independently.
 
 ## 4. Architecture
 
-### 4.1 MNMM.BIN — The Memory Manager Binary
+### 4.1 MNMM.SYS — The Memory Manager Binary
 
-MNMM follows the same modular pattern as FS.BIN:
+MNMM follows the same modular pattern as FS.SYS:
 
-| Property        | FS.BIN                    | MNMM.BIN                  |
+| Property        | FS.SYS                    | MNMM.SYS                  |
 |-----------------|---------------------------|----------------------------|
 | Load address    | 0x0800                    | 0x2800                     |
 | Max size        | 8 KB (8192 bytes)         | 2 KB (2048 bytes)          |
@@ -245,7 +245,7 @@ MNMM follows the same modular pattern as FS.BIN:
 | Initialized by  | KERNEL calls entry point  | KERNEL calls entry point   |
 
 The IVT entry for INT 0x82 is at offset `0x82 × 4 = 0x0208`.  MNMM writes
-its handler address there during initialization, just like FS.BIN does for
+its handler address there during initialization, just like FS.SYS does for
 INT 0x81.
 
 ### 4.2 Interrupt Vector Table
@@ -254,8 +254,8 @@ INT 0x81.
 Interrupt    IVT Offset    Handler               Service
 ───────────────────────────────────────────────────────────
 INT 0x80     0x0200        KERNEL (0x5000+)      Kernel syscalls
-INT 0x81     0x0204        FS.BIN (0x0800+)      Filesystem
-INT 0x82     0x0208        MNMM.BIN (0x2800+)    Memory manager  ← NEW
+INT 0x81     0x0204        FS.SYS (0x0800+)      Filesystem
+INT 0x82     0x0208        MNMM.SYS (0x2800+)    Memory manager  ← NEW
 ```
 
 ### 4.3 Boot Chain Update
@@ -265,15 +265,15 @@ The kernel initialization sequence gains one new step:
 ```
 KERNEL init (0x5000):
   1.  Install INT 0x80 handler (kernel syscalls)
-  2.  Load FS.BIN → 0x0800 (direct disk I/O via BIOS INT 13h)
-  3.  Call FS.BIN init → installs INT 0x81
-  4.  Load MNMM.BIN → 0x2800 (via INT 0x81 FS_READ_FILE)      ← NEW
-  5.  Call MNMM.BIN init → installs INT 0x82, initializes heap ← NEW
-  6.  Load SHELL.BIN → 0x3000 (via INT 0x81 FS_READ_FILE)
-  7.  Jump to SHELL.BIN entry point
+  2.  Load FS.SYS → 0x0800 (direct disk I/O via BIOS INT 13h)
+  3.  Call FS.SYS init → installs INT 0x81
+  4.  Load MNMM.SYS → 0x2800 (via INT 0x81 FS_READ_FILE)      ← NEW
+  5.  Call MNMM.SYS init → installs INT 0x82, initializes heap ← NEW
+  6.  Load SHELL.SYS → 0x3000 (via INT 0x81 FS_READ_FILE)
+  7.  Jump to SHELL.SYS entry point
 ```
 
-MNMM depends on FS.BIN (to load itself from disk) but has **no runtime
+MNMM depends on FS.SYS (to load itself from disk) but has **no runtime
 dependency** on FS.  Once loaded and initialized, MNMM operates on pure RAM
 with no disk or display I/O.
 
@@ -297,7 +297,7 @@ with no disk or display I/O.
           │      └─────────┘          │          │
           │ loads (direct)     loads (INT 0x81)  │ loads (INT 0x81)
      ┌────▼────┐          ┌────▼────┐       ┌────▼────┐
-     │ FS.BIN  │          │MNMM.BIN │       │ SHELL   │
+     │ FS.SYS  │          │MNMM.SYS │       │ SHELL   │
      │INT 0x81 │          │INT 0x82 │       │         │
      └─────────┘          └─────────┘       └─────────┘
           │                    │                 │
@@ -1164,7 +1164,7 @@ This is a future enhancement — probably v0.9.0 — but worth designing for.
 ### 11.1 MNMM Data Segment
 
 ```nasm
-; ─── MNMM internal data (within MNMM.BIN at 0x2800) ───────────
+; ─── MNMM internal data (within MNMM.SYS at 0x2800) ───────────
 MNMM_HEAP_START  equ 0x8000     ; first byte of managed heap
 MNMM_HEAP_END    equ 0xF800     ; first byte past heap (exclusive)
 MNMM_HEAP_SIZE   equ (MNMM_HEAP_END - MNMM_HEAP_START)  ; 30720
@@ -1640,17 +1640,17 @@ functions like `MEM_REALLOC` or heap compaction.
 
 | File                       | Purpose                                    |
 |----------------------------|--------------------------------------------|
-| `src/mm/mnmm.asm`         | Memory manager binary (assembles to MNMM.BIN) |
+| `src/mm/mnmm.asm`         | Memory manager binary (assembles to MNMM.SYS) |
 | `src/include/memory.inc`   | MEM_* constants for INT 0x82 callers       |
 
 ### 12.2 Modified Files
 
 | File                       | Change                                     |
 |----------------------------|--------------------------------------------|
-| `src/kernel/kernel.asm`    | Add MNMM.BIN load + init between FS and SHELL |
-| `tools/create-disk.ps1`    | Add MNMM.BIN to MNFS directory             |
-| `build.bat`                | Assemble `mnmm.asm` → `MNMM.BIN`          |
-| `doc/MEMORY-LAYOUT.md`     | Add 0x2800 MNMM.BIN entry, 0x8000 heap     |
+| `src/kernel/kernel.asm`    | Add MNMM.SYS load + init between FS and SHELL |
+| `tools/create-disk.ps1`    | Add MNMM.SYS to MNFS directory             |
+| `build.bat`                | Assemble `mnmm.asm` → `MNMM.SYS`          |
+| `doc/MEMORY-LAYOUT.md`     | Add 0x2800 MNMM.SYS entry, 0x8000 heap     |
 | `doc/SYSTEM-CALLS.md`      | Add INT 0x82 reference                     |
 | `CHANGELOG.md`             | v0.8.0 entry                               |
 | `.copilot-context.md`      | Update component list                      |
@@ -1662,7 +1662,7 @@ functions like `MEM_REALLOC` or heap compaction.
 2. **`mnmm.asm`** — Implement init, dispatcher, alloc, free, avail, info.
    Test with `mnmon` (examine heap at 0x8000).
 3. **Build system** — Add NASM assembly step and disk inclusion.
-4. **Kernel integration** — Load and initialize MNMM.BIN after FS.BIN.
+4. **Kernel integration** — Load and initialize MNMM.SYS after FS.SYS.
 5. **Shell `mem` command** — Display heap statistics via INT 0x82.
 6. **Documentation** — Update all docs.
 

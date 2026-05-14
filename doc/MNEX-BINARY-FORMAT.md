@@ -194,9 +194,9 @@ should be placed in memory.  Examples:
 
 | Binary | load_addr | Rationale |
 |--------|-----------|-----------|
-| LOADER.BIN | 0x00000800 | Below 1 MB, accessible in real mode |
-| SHELL.BIN | 0x00003000 | Below 1 MB, accessible in real mode |
-| KERNEL.BIN | 0x00100000 | 1 MB mark, start of extended memory |
+| LOADER.SYS | 0x00000800 | Below 1 MB, accessible in real mode |
+| SHELL.SYS | 0x00003000 | Below 1 MB, accessible in real mode |
+| KERNEL.SYS | 0x00100000 | 1 MB mark, start of extended memory |
 | KERNEL64.BIN | 0x00100000 | Same (identity-mapped) |
 
 **entry_offset** (4 bytes) — Byte offset from `load_addr` to the first
@@ -348,7 +348,7 @@ When a mode mismatch is detected, the loader prints a clear diagnostic:
 
 ```
 MNEX Error: mode mismatch
-  Binary:  MNKN (kernel.bin)
+  Binary:  MNKN (KERNEL.SYS)
   Requires: 32-bit protected mode
   Current:  16-bit real mode
   Action:   Cannot load — loader does not support mode switch
@@ -358,7 +358,7 @@ MNEX Error: mode mismatch
   Action:   Cannot downgrade from 32-bit to 16-bit
 ```
 
-### 4.4 Implementation in LOADER.BIN (16-bit)
+### 4.4 Implementation in LOADER.SYS (16-bit)
 
 ```nasm
 ; After loading the first sector of a binary and verifying magic:
@@ -516,9 +516,9 @@ ld.lld, and llvm-objcopy out of the box.
 src/boot/mbr.asm ─── nasm -f bin ──→ mbr.bin (512 B, no MNEX header — BIOS std)
 
 src/boot/vbr.asm ─── nasm -f bin ──→ vbr.raw ──→ wrap-mnex.ps1 ──→ vbr.bin
-src/loader/loader.asm ─ nasm -f bin → loader.raw → wrap-mnex.ps1 → loader.bin
-src/kernel/kernel.asm ─ nasm -f bin → kernel.raw → wrap-mnex.ps1 → kernel.bin
-src/shell/shell.asm ─── nasm -f bin → shell.raw  → wrap-mnex.ps1 → shell.bin
+src/loader/loader.asm ─ nasm -f bin → loader.raw → wrap-mnex.ps1 → LOADER.SYS
+src/kernel/kernel.asm ─ nasm -f bin → kernel.raw → wrap-mnex.ps1 → KERNEL.SYS
+src/shell/shell.asm ─── nasm -f bin → shell.raw  → wrap-mnex.ps1 → SHELL.SYS
                                                         │
                                                   All binaries have
                                                   unified 32-byte MNEX
@@ -553,7 +553,7 @@ src/kernel/idt.c ──────── clang --target ──→ idt.o ──�
                                                        │
                                                   tools/wrap-mnex.ps1
                                                        │
-                                                  build/boot/kernel.bin
+                                                  build/boot/KERNEL.SYS
                                                   (MNEX header + flat binary)
 ```
 
@@ -689,7 +689,7 @@ This script takes a flat binary and prepends the 32-byte MNEX header:
 ```powershell
 param(
     [string]$InputFile,          # kernel.raw (flat binary from objcopy)
-    [string]$OutputFile,         # kernel.bin (MNEX-wrapped)
+    [string]$OutputFile,         # KERNEL.SYS (MNEX-wrapped)
     [string]$Magic = "MNKN",    # 4-byte magic
     [int]$CpuMode = 1,          # 0=16, 1=32, 2=64
     [uint32]$LoadAddr = 0x100000,
@@ -738,16 +738,21 @@ Binary         Magic   Header     CPU   Load Addr   Produced By     Loaded By
 ─────────────  ──────  ─────────  ────  ──────────  ──────────────  ──────────
 mbr.bin        (none)  N/A        16    0x7C00      NASM            BIOS
 vbr.bin        MNOS    MNEX 32B   16    0x7C00      NASM+wrap       MBR
-loader.bin     MNLD    MNEX 32B   16    0x0800      NASM+wrap       VBR
-kernel.bin     MNKN    MNEX 32B   16*   0x5000      NASM+wrap       LOADER
-shell.bin      MNEX    MNEX 32B   16    0x3000      NASM+wrap       KERNEL
+LOADER.SYS     MNLD    MNEX 32B   16    0x0800      NASM+wrap       VBR
+KERNEL.SYS     MNKN    MNEX 32B   16*   0x5000      NASM+wrap       LOADER
+FS.SYS         MNFS    MNEX 32B   16    0x0800      NASM+wrap       KERNEL
+MM.SYS         MNMM    MNEX 32B   16    0x2800      NASM+wrap       KERNEL
+SHELL.SYS      MNSH    MNEX 32B   16    0x3000      NASM+wrap       KERNEL†
+app.mnx        MNEX    MNEX 32B   **    0x9000      NASM+wrap       SHELL
 kernel32.bin   MNKN    MNEX 32B   32    0x100000    Clang+NASM+LD   LOADER
 kernel64.bin   MNKN    MNEX 32B   64    0x100000    Clang+NASM+LD   LOADER
-app.bin        MNEX    MNEX 32B   **    TBD         varies          KERNEL
 ```
 
 *\* The 16-bit kernel uses BIOS interrupts for hardware access.*
 *\*\* Executables are built for the same cpu_mode as the kernel that loads them.*
+*† SHELL.SYS uses `.SYS` because it is loaded by the kernel at boot into
+system memory (0x3000) and runs for the lifetime of the OS.  User programs
+loaded on demand use `.MNX`.*
 
 All binaries (except MBR) share the identical 32-byte MNEX header.  The loader
 uses one code path to parse any binary, then branches based on `cpu_mode`.
@@ -760,9 +765,9 @@ Sectors 1–2047          → Reserved gap
 
 Partition start (LBA 2048):
   Offset 0              → VBR (2 sectors, MNEX header with jmp preamble)
-  Offset 4              → LOADER.BIN (up to 16 sectors, MNEX header)
-  Offset 20             → KERNEL.BIN (up to 16 sectors, MNEX header, cpu_mode=0)
-  Offset 36             → SHELL.BIN (up to 16 sectors, MNEX header, cpu_mode=0)
+  Offset 4              → LOADER.SYS (up to 16 sectors, MNEX header)
+  Offset 20             → KERNEL.SYS (up to 16 sectors, MNEX header, cpu_mode=0)
+  Offset 36             → SHELL.SYS (up to 16 sectors, MNEX header, cpu_mode=0)
   Offset 52+            → Future executables / filesystem
 ```
 
@@ -772,9 +777,9 @@ Partition start (LBA 2048):
 ```
 BIOS → MBR (0x7C00)
          → VBR (0x7C00, via staging at 0x7E00)
-              → LOADER.BIN (0x0800)
-                   → KERNEL.BIN (0x5000, 16-bit, MNKN)
-                        → SHELL.BIN (0x3000, 16-bit, MNEX)
+              → LOADER.SYS (0x0800)
+                   → KERNEL.SYS (0x5000, 16-bit, MNKN)
+                        → SHELL.SYS (0x3000, 16-bit, MNEX)
                              → Interactive shell (mnos:\>)
 ```
 
@@ -782,9 +787,9 @@ BIOS → MBR (0x7C00)
 ```
 BIOS → MBR (0x7C00)
          → VBR (0x7C00)
-              → LOADER.BIN (0x0800)
+              → LOADER.SYS (0x0800)
                    │
-                   ├── Load KERNEL.BIN to bounce buffer (e.g., 0x10000)
+                   ├── Load KERNEL.SYS to bounce buffer (e.g., 0x10000)
                    │   ├── Verify MNKN magic + cpu_mode
                    │   ├── Read load_addr, code_size, bss_size from header
                    │   │
@@ -797,8 +802,8 @@ BIOS → MBR (0x7C00)
                    │   │
                    │   └── JMP to load_addr + entry_offset
                    │
-                   └── KERNEL.BIN running at 0x100000 in 32-bit mode
-                        → Loads SHELL.BIN (MNEX, cpu_mode=1) as user-mode executable
+                   └── KERNEL.SYS running at 0x100000 in 32-bit mode
+                        → Loads SHELL.SYS (MNEX, cpu_mode=1) as user-mode executable
                         → VGA driver, keyboard driver, shell in C
 ```
 

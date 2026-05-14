@@ -1,5 +1,5 @@
 ; =============================================================================
-; Mini-OS Loader (LOADER.BIN) - Stage 2
+; Mini-OS Loader (LOADER.SYS) - Stage 2
 ;
 ; Loaded by the VBR into memory at 0x0800.  Responsibilities:
 ;   1. Enable the A20 gate (3 fallback methods)
@@ -18,7 +18,7 @@
 ;   Offset 0: 'MNLD'   Magic identifier (4 bytes)
 ;   Offset 4: dw N     Loader size in sectors
 ;
-; Assembled with:  nasm -f bin -o loader.bin src/loader/loader.asm
+; Assembled with:  nasm -f bin -o loader.sys src/loader/loader.asm
 ; =============================================================================
 
 %include "bib.inc"
@@ -238,7 +238,7 @@ load_kernel:
     mov si, msg_kernel
     call boot_ok
 
-    ; --- Transfer control to KERNEL.BIN --------------------------------------
+    ; --- Transfer control to KERNEL.SYS --------------------------------------
     ; Skip the 6-byte MNEX header (magic + sector count) to reach code entry.
     jmp KERNEL_SEG:KERNEL_OFF + MNEX_HDR_SIZE
 
@@ -270,8 +270,8 @@ msg_a20_warn db '[WARN] A20 gate not enabled', 13, 10, 0
 msg_kernel   db 'Kernel loaded', 0
 
 ; 11-byte "8.3" filenames for directory lookup (8 name + 3 ext, space-padded)
-fname_kernel  db 'KERNEL  BIN'
-fname_kerneld db 'KERNELD BIN'
+fname_kernel  db 'KERNEL  SYS'
+fname_kerneld db 'KERNELD SYS'
 
 ; Boot menu text
 msg_menu     db 13, 10

@@ -1,7 +1,7 @@
 ; =============================================================================
-; Mini-OS Shell (SHELL.BIN) - Interactive Command Shell (User-Mode Executable)
+; Mini-OS Shell (SHELL.SYS) - Interactive Command Shell (User-Mode Executable)
 ;
-; Loaded by KERNEL.BIN into memory at 0x3000.  Provides the interactive
+; Loaded by KERNEL.SYS into memory at 0x3000.  Provides the interactive
 ; command-line interface for mini-os.
 ;
 ; This is a user-mode executable (MNEX).  ALL hardware access goes through
@@ -24,7 +24,7 @@
 ;   cls      - Clear the screen
 ;   reboot   - Warm-reboot the system
 ;
-; Assembled with:  nasm -f bin -o shell.bin src/shell/shell.asm
+; Assembled with:  nasm -f bin -o shell.sys src/shell/shell.asm
 ; =============================================================================
 
 %include "syscalls.inc"
@@ -38,7 +38,7 @@
 ; SHELL HEADER
 ; =============================================================================
 shell_magic     db 'MNEX'           ; Magic identifier — user-mode executable
-shell_sectors   dw 13               ; Shell size in sectors (updated as needed)
+shell_sectors   dw 14               ; Shell size in sectors (updated as needed)
 
 ; =============================================================================
 ; SHELL INIT
@@ -156,6 +156,6 @@ shell_prompt:
 %include "shell_data.inc"
 
 ; =============================================================================
-; PADDING — fill to sector boundary (13 sectors = 6656 bytes)
+; PADDING — fill to sector boundary (14 sectors = 7168 bytes)
 ; =============================================================================
-times (13 * 512) - ($ - $$) db 0
+times (14 * 512) - ($ - $$) db 0

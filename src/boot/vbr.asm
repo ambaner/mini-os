@@ -4,7 +4,7 @@
 ; This is the first-stage bootloader within the partition.  The MBR loads
 ; this code from the partition's first sector(s) into memory at 0x7C00.
 ;
-; The VBR's only job is to find LOADER.BIN in the MNFS directory, load it
+; The VBR's only job is to find LOADER.SYS in the MNFS directory, load it
 ; into memory, populate the Boot Info Block (BIB), and transfer control.
 ;
 ; VBR Header layout (starts at byte 0 of the partition):
@@ -16,11 +16,11 @@
 ;
 ; Boot Info Block (BIB) at 0x0600:
 ;   Offset 0:   boot_drive  (1 byte)  — BIOS drive number from DL
-;   Offset 1:   a20_status  (1 byte)  — set by LOADER.BIN
+;   Offset 1:   a20_status  (1 byte)  — set by LOADER.SYS
 ;   Offset 2:   part_lba    (4 bytes) — partition start LBA
 ;
 ; The MNFS directory table is at partition sector 2.  VBR reads it to
-; find LOADER.BIN's start sector (no hardcoded file offsets).
+; find LOADER.SYS's start sector (no hardcoded file offsets).
 ;
 ; Assembled with:  nasm -f bin -o vbr.bin src/boot/vbr.asm
 ; =============================================================================
@@ -66,7 +66,7 @@ vbr_code:
 
     mov byte [BIB_A20], 0           ; Clear A20 status (loader will set it)
 
-    ; --- Find LOADER.BIN in MNFS directory -----------------------------------
+    ; --- Find LOADER.SYS in MNFS directory -----------------------------------
     mov bx, LOADER_OFF              ; Scratch buffer = LOADER load address
     mov si, fname_loader            ; 11-byte "8.3" filename
     call find_file
@@ -79,11 +79,11 @@ vbr_code:
     call load_mnex
     jc .vbr_fail
 
-    ; --- Boot status: LOADER.BIN loaded successfully -------------------------
+    ; --- Boot status: LOADER.SYS loaded successfully -------------------------
     mov si, msg_loader
     call boot_ok
 
-    ; --- Transfer control to LOADER.BIN --------------------------------------
+    ; --- Transfer control to LOADER.SYS --------------------------------------
     ; Skip the 6-byte MNEX header (magic + sector count) to reach code entry.
     jmp LOADER_SEG:LOADER_OFF + MNEX_HDR_SIZE
 
@@ -112,10 +112,10 @@ puts:
     ret
 
 ; --- Data --------------------------------------------------------------------
-msg_loader  db 'LOADER.BIN', 0
+msg_loader  db 'LOADER.SYS', 0
 
 ; 11-byte "8.3" filename for directory lookup (8 name + 3 ext, space-padded)
-fname_loader db 'LOADER  BIN'
+fname_loader db 'LOADER  SYS'
 
 ; --- Disk Address Packet (DAP) for INT 13h AH=42h ---------------------------
 dap:

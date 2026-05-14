@@ -4,7 +4,7 @@
 
 ; --- Shell strings -----------------------------------------------------------
 msg_banner      db 13, 10
-                db '  MNOS v0.9.2 ', 0      ; Tag appended at runtime
+                db '  MNOS v0.9.5 ', 0      ; Tag appended at runtime
 
 msg_tag_release db '[Release]', 13, 10, 13, 10, 0
 msg_tag_debug   db '[Debug]', 13, 10, 13, 10, 0
@@ -32,7 +32,7 @@ str_reboot      db 'reboot', 0
 str_dir         db 'dir', 0
 
 ; --- ver command strings -----------------------------------------------------
-msg_ver_line1   db '  MNOS v0.9.2 ', 0     ; Tag appended at runtime
+msg_ver_line1   db '  MNOS v0.9.5 ', 0     ; Tag appended at runtime
 msg_ver_rest    db '  Arch:      x86 real mode (16-bit)', 13, 10
                 db '  Assembler: NASM', 13, 10
                 db '  Platform:  Hyper-V Gen 1', 13, 10
@@ -129,10 +129,10 @@ msg_layout      db '    0x00000-0x003FF  1 KB    IVT (Interrupt Vector Table)', 
                 db '    0x00400-0x004FF  256 B   BDA (BIOS Data Area)', 13, 10
                 db '    0x00500-0x005FF  256 B   Free (BIOS scratch)', 13, 10
                 db '    0x00600-0x0060F  16 B    Boot Info Block (BIB)', 13, 10
-                db '    0x00800-0x027FF  8 KB    FS.BIN (INT 0x81)', 13, 10
-                db '    0x02800-0x02FFF  2 KB    MM.BIN (INT 0x82)', 13, 10
-                db '    0x03000-0x04FFF  8 KB    SHELL.BIN (this code)', 13, 10
-                db '    0x05000-0x06FFF  8 KB    KERNEL.BIN (INT 0x80)', 13, 10
+                db '    0x00800-0x027FF  8 KB    FS.SYS (INT 0x81)', 13, 10
+                db '    0x02800-0x02FFF  2 KB    MM.SYS (INT 0x82)', 13, 10
+                db '    0x03000-0x04FFF  8 KB    SHELL.SYS (this code)', 13, 10
+                db '    0x05000-0x06FFF  8 KB    KERNEL.SYS (INT 0x80)', 13, 10
                 db '    0x07000-0x07BFF  3 KB    Stack', 13, 10
                 db '    0x07C00-0x07FFF  1 KB    VBR (boot only)', 13, 10
                 db '    0x08000-0x0F7FF  30 KB   HEAP (managed by MM)', 13, 10
@@ -229,6 +229,7 @@ msg_dir_indent  db '  ', 0
 msg_dir_space   db '   ', 0
 msg_dir_sys     db 'SYS  ', 0
 msg_dir_exe     db 'EXE  ', 0
+msg_dir_sysx    db 'SYS+X', 0
 msg_dir_dat     db '---  ', 0
 msg_dir_sec_suffix db ' sec', 0
 msg_dir_bytes_suffix db 13, 10, 0

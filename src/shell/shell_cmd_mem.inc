@@ -95,7 +95,7 @@ cmd_mem:
     mov si, msg_layout_hdr
     mov ah, SYS_PRINT_STRING
     int 0x80
-    ; Print "    0x00800-0x027FF" — but now it's FS.BIN at runtime
+    ; Print "    0x00800-0x027FF" — but now it's FS.SYS at runtime
     mov si, msg_layout
     mov ah, SYS_PRINT_STRING
     int 0x80

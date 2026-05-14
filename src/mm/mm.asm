@@ -1,12 +1,12 @@
 ; =============================================================================
-; Mini-OS Memory Manager (MM.BIN) — MNMM Heap Allocator
+; Mini-OS Memory Manager (MM.SYS) — MNMM Heap Allocator
 ;
-; Loaded by KERNEL.BIN into memory at 0x2800.  Provides dynamic memory
+; Loaded by KERNEL.SYS into memory at 0x2800.  Provides dynamic memory
 ; allocation services via INT 0x82 — fully decoupled from the kernel's
 ; INT 0x80 and the filesystem's INT 0x81.
 ;
 ; Architecture:
-;   User mode (SHELL)  →  INT 0x82  →  MM.BIN  →  manages heap at 0x8000
+;   User mode (SHELL)  →  INT 0x82  →  MM.SYS  →  manages heap at 0x8000
 ;
 ; The heap is a contiguous region from 0x8000 to 0xF7FF (30 KB).  It is
 ; managed as a linked list of Memory Control Blocks (MCBs).  Each block
@@ -39,7 +39,7 @@
 ;
 ; See doc/MEMORY-MANAGER.md for the complete specification.
 ;
-; Assembled with:  nasm -f bin -o mm.bin src/mm/mm.asm
+; Assembled with:  nasm -f bin -o mm.sys src/mm/mm.asm
 ; =============================================================================
 
 %include "memory.inc"
@@ -49,7 +49,7 @@
 [ORG MM_OFF]                         ; Loaded at 0x2800
 
 ; =============================================================================
-; MM.BIN HEADER
+; MM.SYS HEADER
 ; =============================================================================
 mm_magic        db 'MNMM'           ; Magic identifier — memory manager
 %ifdef DEBUG
@@ -61,7 +61,7 @@ mm_sectors      dw 1                 ; Module size in sectors (release build)
 ; =============================================================================
 ; mm_init — Initialize the memory manager
 ;
-; Called by the kernel after loading MM.BIN into memory.
+; Called by the kernel after loading MM.SYS into memory.
 ;   1. Installs INT 0x82 handler in the IVT
 ;   2. Initializes the heap as a single free block spanning 0x8000–0xF7FF
 ;

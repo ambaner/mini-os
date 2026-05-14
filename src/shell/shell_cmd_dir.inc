@@ -1,6 +1,6 @@
 ; =============================================================================
 ; COMMAND: dir
-; List files in the MNFS filesystem via INT 0x81 (FS.BIN).
+; List files in the MNFS filesystem via INT 0x81 (FS.SYS).
 ;
 ; Calls FS_LIST_FILES to get the cached directory, then parses and displays
 ; each entry in a formatted table.
@@ -79,6 +79,11 @@ cmd_dir:
 
     ; Check attributes at entry + 11
     mov al, [si + MNFS_ENT_ATTR]
+    ; Check combined SYSTEM+EXEC first (0x03)
+    mov ah, al
+    and ah, MNFS_ATTR_SYSTEM | MNFS_ATTR_EXEC
+    cmp ah, MNFS_ATTR_SYSTEM | MNFS_ATTR_EXEC
+    je .dir_sysx
     test al, MNFS_ATTR_SYSTEM
     jnz .dir_sys
     test al, MNFS_ATTR_EXEC
@@ -86,6 +91,14 @@ cmd_dir:
     ; Data file
     push si
     mov si, msg_dir_dat
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    pop si
+    jmp .dir_size
+
+.dir_sysx:
+    push si
+    mov si, msg_dir_sysx
     mov ah, SYS_PRINT_STRING
     int 0x80
     pop si

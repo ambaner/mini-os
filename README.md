@@ -1,10 +1,10 @@
 # mini-os
 
-A minimalistic operating system, built from scratch — currently at **v0.9.2**.
+A minimalistic operating system, built from scratch — currently at **v0.9.5**.
 MBR reads the partition table, chain-loads a VBR which loads a stage-2 loader
-(A20 gate enablement + boot menu), which loads a 16-bit kernel (KERNEL.BIN) that provides
-an INT 0x80 syscall interface, which loads the filesystem module (FS.BIN) with
-an INT 0x81 filesystem API, the memory manager (MM.BIN) with an INT 0x82
+(A20 gate enablement + boot menu), which loads a 16-bit kernel (KERNEL.SYS) that provides
+an INT 0x80 syscall interface, which loads the filesystem module (FS.SYS) with
+an INT 0x81 filesystem API, the memory manager (MM.SYS) with an INT 0x82
 dynamic heap allocator, and finally the interactive shell (`mnos:\>`) with
 commands for system info, CPU details, memory diagnostics, directory listing,
 version info, and more.  A boot menu lets the user choose between Release and
@@ -90,7 +90,7 @@ VHD — no need to rebuild or swap images.
 After the boot chain completes, you'll see the shell:
 
 ```
-  MNOS v0.9.2 [Release]
+  MNOS v0.9.5 [Release]
 
 mnos:\>
 ```
@@ -125,10 +125,10 @@ mini-os/
 │   ├── DESIGN.md             # Architecture & design document
 │   ├── DEBUGGING.md          # Debug infrastructure (serial, asserts, faults, canary)
 │   ├── LOADER.md             # Stage-2 loader design (A20, boot menu)
-│   ├── FILESYSTEM.md         # MNFS specification & FS.BIN architecture
+│   ├── FILESYSTEM.md         # MNFS specification & FS.SYS architecture
 │   ├── BOOT-LAYOUT-RATIONALE.md  # Boot chain rationale (DOS/Windows/Linux comparisons)
 │   ├── MEMORY-LAYOUT.md      # Memory map, stack analysis, protected-mode roadmap
-│   ├── MEMORY-MANAGER.md     # Memory manager design & implementation (MM.BIN)
+│   ├── MEMORY-MANAGER.md     # Memory manager design & implementation (MM.SYS)
 │   ├── CPU-MODES-AND-TRANSITIONS.md  # 16→32→64-bit journey, BIOS vs UEFI
 │   ├── MNEX-BINARY-FORMAT.md # Custom binary format spec, toolchain, build pipeline
 │   └── SYSTEM-CALLS.md       # User↔kernel boundary, IVT/IDT/SYSCALL mechanisms
@@ -145,7 +145,7 @@ mini-os/
 │   │   └── debug.inc          # DBG/ASSERT macros (debug build only)
 │   ├── boot/
 │   │   ├── mbr.asm            # MBR — partition table scan + VBR chain-load
-│   │   └── vbr.asm            # VBR — finds LOADER.BIN via MNFS directory
+│   │   └── vbr.asm            # VBR  finds LOADER.SYS via MNFS directory
 │   ├── loader/
 │   │   └── loader.asm         # Stage-2 loader — A20 gate, boot menu, loads KERNEL
 │   ├── kernel/
@@ -178,13 +178,13 @@ mini-os/
 │   └── boot/
 │       ├── mbr.bin            # MBR binary
 │       ├── vbr.bin            # VBR binary (2 sectors)
-│       ├── loader.bin         # LOADER (3 sectors, shared)
-│       ├── fs.bin             # FS — release (2 sectors)
-│       ├── kernel.bin         # KERNEL — release (7 sectors)
-│       ├── shell.bin          # SHELL — release (12 sectors)
-│       ├── fsd.bin            # FS — debug (4 sectors)
-│       ├── kerneld.bin        # KERNEL — debug (11 sectors)
-│       ├── shelld.bin         # SHELL — debug (12 sectors)
+│       ├── loader.sys         # LOADER (3 sectors, shared)
+│       ├── fs.sys             # FS — release (2 sectors)
+│       ├── kernel.sys         # KERNEL — release (7 sectors)
+│       ├── shell.sys          # SHELL — release (14 sectors)
+│       ├── fsd.sys            # FS — debug (4 sectors)
+│       ├── kerneld.sys        # KERNEL — debug (11 sectors)
+│       ├── shelld.sys         # SHELL — debug (14 sectors)
 │       ├── mini-os.img        # 16 MB raw disk image
 │       └── mini-os.vhd        # Bootable VHD (single unified image)
 ├── build.bat                  # Build entry point
@@ -205,7 +205,7 @@ memory layout, VHD format, shell internals, disk layout, and project roadmap.
 Additional deep-dive documents:
 
 - **[doc/FILESYSTEM.md](doc/FILESYSTEM.md)** — MNFS flat filesystem specification:
-  directory format, 8.3 filenames, FS.BIN module architecture, INT 0x81 API,
+  directory format, 8.3 filenames, FS.SYS module architecture, INT 0x81 API,
   bootstrap vs runtime filesystem access, and build pipeline integration.
 
 - **[doc/BOOT-LAYOUT-RATIONALE.md](doc/BOOT-LAYOUT-RATIONALE.md)** — Why the three-stage boot
@@ -252,9 +252,9 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.2.6` | **`mem` command** | Detailed memory info: conventional/extended RAM, A20 gate status, memory layout, E820 map |
 | `v0.2.7` | **`ver` + CPU/EDD sysinfo** | Version command, CPUID details page, EDD disk info, sysinfo now 5 pages |
 | `v0.3.0` | **A20 gate enablement** | VBR enables A20 at boot (BIOS/8042/Fast A20 fallbacks), full memory access above 1 MB |
-| `v0.4.0` | **Three-stage boot chain** | VBR → LOADER.BIN → SHELL.BIN split; A20 in loader, shell as separate binary, BIB at 0x0600 |
-| `v0.5.0` | **16-bit Kernel + Syscalls** | KERNEL.BIN with INT 0x80 syscall interface; shell refactored to user-mode MNEX executable |
-| `v0.6.0` | **MNFS Filesystem** | Flat filesystem, FS.BIN module with INT 0x81 API, `dir` command, no hardcoded disk offsets |
+| `v0.4.0` | **Three-stage boot chain** | VBR -> LOADER.SYS -> SHELL.SYS split; A20 in loader, shell as separate binary, BIB at 0x0600 |
+| `v0.5.0` | **16-bit Kernel + Syscalls** | KERNEL.SYS with INT 0x80 syscall interface; shell refactored to user-mode MNEX executable |
+| `v0.6.0` | **MNFS Filesystem** | Flat filesystem, FS.SYS module with INT 0x81 API, `dir` command, no hardcoded disk offsets |
 | `v0.7.0` | **Serial Debugging** | COM1 serial logging, debug macros, syscall/FS tracing, debug build mode (`build.bat /debug`) |
 | `v0.7.1` | **User-Mode Debug Syscalls** | SYS_DBG_PRINT/HEX16/REGS (0x20–0x22) with caller tags, shell tracing |
 | `v0.7.2` | **Assert Macros** | ASSERT, ASSERT_CF_CLEAR, ASSERT_MAGIC — halt + register dump on failure; 0 bytes in release |
@@ -263,8 +263,9 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.7.5` | **Source File Split** | Kernel & shell split into focused include files; binary-identical output; build script adds per-module include paths |
 | `v0.8.0` | **Dual-Boot Menu** | Boot menu (release/debug); unified VHD with both variants; BIB boot_mode; shell shows [Release]/[Debug] |
 | `v0.8.1` | **Stack Canary** | Debug-only stack overflow detection; canary at 0x7000 checked on every syscall; fatal halt with diagnostic on corruption |
-| `v0.9.0` | **Memory Manager** | MM.BIN heap allocator at 0x2800; INT 0x82 API (alloc/free/avail/info); 30 KB heap at 0x8000; MCB block headers; first-fit with coalescing |
+| `v0.9.0` | **Memory Manager** | MM.SYS heap allocator at 0x2800; INT 0x82 API (alloc/free/avail/info); 30 KB heap at 0x8000; MCB block headers; first-fit with coalescing |
 | `v0.9.1` | **mem + MM tracing** | Shell `mem` shows heap stats (total/used/free/blocks/largest); memory layout includes MM + heap; debug serial tracing for all MM calls |
+| `v0.9.5` | **File extensions** | System binaries renamed `.BIN` → `.SYS` (kernel-loaded, resident); `.MNX` convention for future user-mode executables (shell-loaded, transient) |
 | `v0.9.2` | **MCB owner tags** | Flags byte bits 1-3 carry 3-bit owner ID; MEM_ALLOC DL=owner; shell `mem` block detail walk with owner names; debug trace logs owner |
 
 ```cmd

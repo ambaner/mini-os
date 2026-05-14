@@ -10,7 +10,7 @@
 ;
 ; Used by:
 ;   - VBR, LOADER, KERNEL (via find_file.inc for boot-time directory lookup)
-;   - FS.BIN (filesystem module, implements INT 0x81 handler)
+;   - FS.SYS (filesystem module, implements INT 0x81 handler)
 ;   - SHELL (dir command, uses INT 0x81 via FS_* constants)
 ; =============================================================================
 
@@ -51,7 +51,7 @@ MNEX_HDR_SIZE     equ 6              ; Header size — callers must jump past it
 
 ; --- INT 0x81 filesystem syscall numbers -------------------------------------
 ; These are function numbers passed in AH before INT 0x81.
-; FS.BIN dispatches based on AH.  See doc/FILESYSTEM.md §8.
+; FS.SYS dispatches based on AH.  See doc/FILESYSTEM.md §8.
 FS_LIST_FILES     equ 0x01           ; ES:BX=buf → CL=count, buf=directory
 FS_FIND_FILE      equ 0x02           ; DS:SI=name → EAX=start, CX=sectors
 FS_READ_FILE      equ 0x03           ; DS:SI=name, ES:BX=buf, CX=max → CX=read

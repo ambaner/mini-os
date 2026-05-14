@@ -5,7 +5,7 @@
 ; filesystem access.  Each including file gets its own copy in the assembled
 ; output (same pattern as load_binary.inc).
 ;
-; After boot completes, user-mode programs use FS.BIN's INT 0x81 interface
+; After boot completes, user-mode programs use FS.SYS's INT 0x81 interface
 ; instead.  This include is the "bootstrap filesystem reader" — just enough
 ; to find a file by name in the MNFS directory table.
 ;

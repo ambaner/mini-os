@@ -8,10 +8,10 @@ build a bootable disk image, and run it in a Hyper-V virtual machine with no pri
 OS-development experience.
 
 The current milestone is **M8: Memory Manager** — the MBR chain-loads a
-minimal VBR, which finds and loads LOADER.BIN from the MNFS directory, LOADER
-enables A20 and finds KERNEL.BIN, the kernel installs INT 0x80 syscalls, loads
-FS.BIN (filesystem module with INT 0x81 API), loads MM.BIN (heap allocator with
-INT 0x82 API), and finally loads the interactive shell (SHELL.BIN) — all file
+minimal VBR, which finds and loads LOADER.SYS from the MNFS directory, LOADER
+enables A20 and finds KERNEL.SYS, the kernel installs INT 0x80 syscalls, loads
+FS.SYS (filesystem module with INT 0x81 API), loads MM.SYS (heap allocator with
+INT 0x82 API), and finally loads the interactive shell (SHELL.SYS) — all file
 locations discovered via directory lookup, no hardcoded disk offsets.  Debug
 builds add serial logging, syscall tracing, user-mode debug syscalls, assertion
 macros, and CPU fault handlers.  Fault handlers are present in both release and
@@ -99,7 +99,7 @@ debug builds (PIC remapped to avoid IRQ/exception vector conflicts).
                                   │
                                   v
                             ┌────────────┐
-                            │ LOADER.BIN │
+                            │ LOADER.SYS │
                             │ Enable A20 │
                             │ (3 methods)│
                             │Find KERNEL │
@@ -109,14 +109,14 @@ debug builds (PIC remapped to avoid IRQ/exception vector conflicts).
                                   │
                                   v
                             ┌────────────┐
-                            │ KERNEL.BIN │
+                            │ KERNEL.SYS │
                             │Install INT │
                             │   0x80     │
-                            │ Load FS.BIN│
+                            │ Load FS.SYS│
                             │ to 0x0800  │
                             │ Init INT   │
                             │   0x81     │
-                            │ Load MM.BIN│
+                            │ Load MM.SYS│
                             │ to 0x2800  │
                             │ Init INT   │
                             │   0x82     │
@@ -126,7 +126,7 @@ debug builds (PIC remapped to avoid IRQ/exception vector conflicts).
                                   │
                                   v
                             ┌────────────┐
-                            │ SHELL.BIN  │
+                            │ SHELL.SYS  │
                             │  mnos:\>   │
                             │ (via INT   │
                             │0x80/81/82) │
@@ -144,14 +144,14 @@ debug builds (PIC remapped to avoid IRQ/exception vector conflicts).
 | `0x0000:0x0000` – `0x0000:0x03FF` | Real-mode Interrupt Vector Table (IVT) |
 | `0x0000:0x0400` – `0x0000:0x04FF` | BIOS Data Area (BDA) |
 | `0x0000:0x0600` – `0x0000:0x060F` | **Boot Info Block (BIB)** — shared parameters |
-| `0x0000:0x0800` – `0x0000:0x27FF` | **FS.BIN** (8 KB max, loaded by kernel; replaces LOADER at runtime) |
-| `0x0000:0x2800` – `0x0000:0x2FFF` | **MM.BIN** (2 KB max, loaded by kernel; memory manager INT 0x82) |
-| `0x0000:0x3000` – `0x0000:0x4FFF` | **SHELL.BIN** (8 KB max, loaded by kernel) |
-| `0x0000:0x5000` – `0x0000:0x6FFF` | **KERNEL.BIN** (8 KB max, 8 sectors used) |
+| `0x0000:0x0800` – `0x0000:0x27FF` | **FS.SYS** (8 KB max, loaded by kernel; replaces LOADER at runtime) |
+| `0x0000:0x2800` – `0x0000:0x2FFF` | **MM.SYS** (2 KB max, loaded by kernel; memory manager INT 0x82) |
+| `0x0000:0x3000` – `0x0000:0x4FFF` | **SHELL.SYS** (8 KB max, loaded by kernel) |
+| `0x0000:0x5000` – `0x0000:0x6FFF` | **KERNEL.SYS** (8 KB max, 8 sectors used) |
 | `0x0000:0x7C00` – `0x0000:0x7FFF` | **VBR** (2 sectors, boot-time only) |
 | `0x0000:0x7BFE` ↓ | Stack (grows downward from 0x7C00) |
 | `0x0000:0x7E00` – `0x0000:0x9DFF` | VBR load buffer (MBR uses this temporarily) |
-| `0x0000:0x8000` – `0x0000:0xF7FF` | **HEAP** (30 KB, managed by MM.BIN via INT 0x82) |
+| `0x0000:0x8000` – `0x0000:0xF7FF` | **HEAP** (30 KB, managed by MM.SYS via INT 0x82) |
 
 #### Boot Info Block (BIB) — 0x0600
 
@@ -196,7 +196,7 @@ from the first entry marked active (`0x80`).
 > gap debate, and clobber protection analysis.
 
 The VBR (`src/boot/vbr.asm`) is a minimal loader at the start of the active
-partition. It has a self-describing header and loads LOADER.BIN from a fixed
+partition. It has a self-describing header and loads LOADER.SYS from a fixed
 partition offset:
 
 ```
@@ -215,12 +215,12 @@ The MBR performs a two-phase load:
 
 The VBR then:
 1. Populates the Boot Info Block (BIB) at 0x0600
-2. Reads the MNFS directory (partition sector 2) to find LOADER.BIN
-3. Loads LOADER.BIN to 0x0800
+2. Reads the MNFS directory (partition sector 2) to find LOADER.SYS
+3. Loads LOADER.SYS to 0x0800
 4. Verifies the 'MNLD' magic
-5. Jumps to LOADER.BIN
+5. Jumps to LOADER.SYS
 
-### 2.5 LOADER.BIN
+### 2.5 LOADER.SYS
 
 The loader (`src/loader/loader.asm`) is loaded by the VBR to 0x0800.  It has a
 self-describing header:
@@ -233,26 +233,26 @@ LOADER Header:
 
 The loader:
 1. Enables the A20 gate (3 fallback methods, see §3.7)
-2. Reads the MNFS directory to find KERNEL.BIN
-3. Loads KERNEL.BIN to 0x5000
+2. Reads the MNFS directory to find KERNEL.SYS
+3. Loads KERNEL.SYS to 0x5000
 4. Verifies the 'MNKN' magic
-5. Jumps to KERNEL.BIN
+5. Jumps to KERNEL.SYS
 
-### 2.6 KERNEL.BIN
+### 2.6 KERNEL.SYS
 
 The kernel (`src/kernel/kernel.asm`) is loaded by the loader to 0x5000.  It
-installs the INT 0x80 syscall handler, then loads FS.BIN, MM.BIN, and SHELL.BIN
+installs the INT 0x80 syscall handler, then loads FS.SYS, MM.SYS, and SHELL.SYS
 via MNFS directory lookup:
 
 1. Installs INT 0x80 syscall handler in the IVT
-2. Finds FS.BIN via MNFS directory, loads to 0x0800 (reusing LOADER's memory)
-3. Calls FS.BIN init (at offset 6) — installs INT 0x81 filesystem handler
-4. Finds MM.BIN via MNFS directory, loads to 0x2800
-5. Calls MM.BIN init (at offset 6) — installs INT 0x82 memory manager handler
-6. Finds SHELL.BIN via MNFS directory, loads to 0x3000
-7. Jumps to SHELL.BIN
+2. Finds FS.SYS via MNFS directory, loads to 0x0800 (reusing LOADER's memory)
+3. Calls FS.SYS init (at offset 6) — installs INT 0x81 filesystem handler
+4. Finds MM.SYS via MNFS directory, loads to 0x2800
+5. Calls MM.SYS init (at offset 6) — installs INT 0x82 memory manager handler
+6. Finds SHELL.SYS via MNFS directory, loads to 0x3000
+7. Jumps to SHELL.SYS
 
-### 2.7 FS.BIN
+### 2.7 FS.SYS
 
 The filesystem module (`src/fs/fs.asm`) is loaded by the kernel to 0x0800.
 It owns the INT 0x81 filesystem syscall interface.  Header:
@@ -267,7 +267,7 @@ FS Header:
 > **📄 Full specification**: See [FILESYSTEM.md](FILESYSTEM.md) for the complete
 > MNFS format, directory structure, INT 0x81 API, and design rationale.
 
-### 2.8 MM.BIN
+### 2.8 MM.SYS
 
 The memory manager (`src/mm/mm.asm`) is loaded by the kernel to 0x2800.
 It owns the INT 0x82 memory management syscall interface.  Header:
@@ -285,7 +285,7 @@ and heap info.
 > **📄 Full specification**: See [MEMORY-MANAGER.md](MEMORY-MANAGER.md) for the
 > complete INT 0x82 API, MCB header format, and allocation algorithm.
 
-### 2.9 SHELL.BIN
+### 2.9 SHELL.SYS
 
 The shell (`src/shell/shell.asm`) is loaded by the kernel to 0x3000.  It provides
 the interactive command-line interface.  Header:
@@ -296,7 +296,31 @@ SHELL Header:
   Offset 4:   dw N      Shell size in sectors
 ```
 
-### 2.10 Disk Layout
+> **Note**: Despite being the user-facing interface, the shell uses the `.SYS`
+> extension because it is part of the system boot chain — the kernel loads it
+> directly into system memory at a fixed address (0x3000), it never returns
+> control to the kernel, and it has unrestricted access to all INT vectors.
+> Future user-mode programs loaded on demand into the TPA (0x9000+) will use
+> the `.MNX` extension instead.
+
+### 2.10 File Extension Conventions
+
+| Extension | Meaning | Loaded by | Memory region |
+|-----------|---------|-----------|---------------|
+| `.SYS`    | System binary — part of the trusted boot chain | Kernel (at boot) | Fixed system addresses (0x0800–0x4FFF) |
+| `.MNX`    | User-mode executable (MNEX format, future) | Shell `run` command | TPA at 0x9000+ |
+| (none)    | Raw boot sectors (MBR, VBR) | BIOS / MBR | 0x7C00 |
+
+System binaries (`.SYS`) are loaded at boot time to fixed memory addresses and
+remain resident for the lifetime of the OS.  They are marked with
+`ATTR_SYSTEM` (bit 0) in the MNFS directory and cannot be loaded by the
+shell's `run` command.
+
+User executables (`.MNX`) are loaded on demand into the Transient Program Area
+(TPA) at 0x9000 and must contain an MNEX header with the `'MNEX'` magic.  They
+are marked with `ATTR_EXEC` (bit 1) in the MNFS directory.
+
+### 2.11 Disk Layout
 
 > **📄 Design rationale**: See [BOOT-LAYOUT-RATIONALE.md](BOOT-LAYOUT-RATIONALE.md)
 > for how this layout compares to DOS, Windows, and Linux.
@@ -310,15 +334,15 @@ Sectors 1–2047          → Gap (zeroed, reserved)
 Sector 2048             → Partition start: VBR (2 sectors)
 Sector 2050             → MNFS directory table (1 sector, up to 15 entries)
 Sector 2051+            → Files packed contiguously:
-                            LOADER.BIN  (3 sectors)
-                            FS.BIN      (2 sectors)
-                            KERNEL.BIN  (8 sectors)
-                            SHELL.BIN   (12 sectors)
-                            MM.BIN      (1 sector)
-                            FSD.BIN     (4 sectors)
-                            KERNELD.BIN (12 sectors)
-                            SHELLD.BIN  (12 sectors)
-                            MMD.BIN     (2 sectors)
+                            LOADER.SYS  (3 sectors)
+                            FS.SYS      (2 sectors)
+                            KERNEL.SYS  (8 sectors)
+                            SHELL.SYS   (14 sectors)
+                            MM.SYS      (1 sector)
+                            FSD.SYS     (4 sectors)
+                            KERNELD.SYS (12 sectors)
+                            SHELLD.SYS  (14 sectors)
+                            MMD.SYS     (2 sectors)
 Remaining sectors       → Zeroed (available for future files)
 ```
 
@@ -333,13 +357,13 @@ with no headers — exactly what the BIOS expects.
 
 ## 3. Interactive Shell
 
-After the boot chain (MBR → VBR → LOADER → KERNEL → FS.BIN → SHELL), the shell
+After the boot chain (MBR → VBR → LOADER → KERNEL → FS.SYS → MM.SYS → SHELL.SYS), the shell
 clears the screen, displays a version banner (`MNOS v0.6.0`), and enters an
 interactive command loop with a `mnos:\>` prompt.
 
 The shell reads boot parameters (boot drive, A20 status) from the Boot Info
 Block (BIB) at 0x0600.  All hardware access goes through INT 0x80 kernel
-syscalls; filesystem access uses INT 0x81 (FS.BIN).
+syscalls; filesystem access uses INT 0x81 (FS.SYS).
 
 ### 3.1 Shell Architecture
 
@@ -423,7 +447,7 @@ configured for strict 8086 compatibility.
 
 ### 3.7 A20 Gate Enablement
 
-As of v0.3.0 (now in LOADER.BIN since v0.4.0), the A20 line is explicitly enabled
+As of v0.3.0 (now in LOADER.SYS since v0.4.0), the A20 line is explicitly enabled
 at boot before loading the shell.  This ensures access to memory above 1 MB
 regardless of the platform.  Three methods are attempted in order, with a
 wrap-around verification after each:
@@ -456,7 +480,7 @@ Displays static version and build information:
 
 ### 3.8 Shell Subroutines
 
-These subroutines live in SHELL.BIN and are available to all commands:
+These subroutines live in SHELL.SYS and are available to all commands:
 
 | Routine | Description |
 |---------|-------------|

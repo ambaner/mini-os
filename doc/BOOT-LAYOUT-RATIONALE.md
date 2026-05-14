@@ -131,7 +131,7 @@ filesystem (ext4, XFS, etc.) that only the kernel needs to understand.
 
 **Relevance to mini-os**: This is the long-term model we want to evolve toward.
 The current fixed-offset approach is a stepping stone — eventually the VBR
-will parse a simple filesystem to find LOADER.BIN and SHELL.BIN.
+will parse a simple filesystem to find LOADER.SYS and SHELL.SYS.
 
 ### 2.4 Comparison Summary
 
@@ -139,8 +139,8 @@ will parse a simple filesystem to find LOADER.BIN and SHELL.BIN.
 |--------|----------|------------|------------|----------------|
 | Boot sector size | 1 sector | 1–16 sectors | 1 sector | 2 sectors |
 | Finds loader via | FAT root dir | NTFS/FAT | MBR gap + FS | Fixed LBA offset |
-| Loader binary | IO.SYS (file) | NTLDR (file) | GRUB Stage 2 (file) | LOADER.BIN (raw sectors) |
-| Shell location | COMMAND.COM (file) | explorer.exe (file) | /bin/bash (file) | SHELL.BIN (raw sectors) |
+| Loader binary | IO.SYS (file) | NTLDR (file) | GRUB Stage 2 (file) | LOADER.SYS (raw sectors) |
+| Shell location | COMMAND.COM (file) | explorer.exe (file) | /bin/bash (file) | SHELL.SYS (raw sectors) |
 | Filesystem required? | Yes (FAT) | Yes (NTFS/FAT) | Yes (ext2+) | **No** |
 | Protected from clobber? | By FS metadata | By FS metadata | By FS metadata | **No** (raw offsets) |
 
@@ -211,8 +211,8 @@ mini-os v0.4.0 uses **fixed disk offsets** within the partition:
 
 ```
 Partition offset 0:   VBR (2 sectors)
-Partition offset 4:   LOADER.BIN (up to 16 sectors)
-Partition offset 20:  SHELL.BIN (up to 32 sectors)
+Partition offset 4:   LOADER.SYS (up to 16 sectors)
+Partition offset 20:  SHELL.SYS (up to 32 sectors)
 ```
 
 These offsets are *not* protected by any metadata. A disk utility that writes
@@ -235,11 +235,11 @@ to the partition (e.g., formatting it with FAT) would overwrite everything.
 
 ## 5. The Role of the VBR Going Forward
 
-With LOADER.BIN and SHELL.BIN extracted, the VBR's role has become minimal:
+With LOADER.SYS and SHELL.SYS extracted, the VBR's role has become minimal:
 
 1. Receive control from MBR
 2. Populate the Boot Info Block (BIB) with boot drive and partition LBA
-3. Load LOADER.BIN from a fixed partition offset
+3. Load LOADER.SYS from a fixed partition offset
 4. Verify the magic number and jump
 
 This raises the question: **why keep the VBR multi-sector (2 sectors) if it's
@@ -250,7 +250,7 @@ so simple?**
 When mini-os eventually gains a filesystem, the VBR will need to:
 
 1. Parse filesystem metadata (superblock, allocation table, directory entries)
-2. Locate LOADER.BIN by filename
+2. Locate LOADER.SYS by filename
 3. Handle fragmented files (read multiple extents/clusters)
 
 A FAT12 BPB alone is 62 bytes. Directory parsing, cluster chain following, and
@@ -261,12 +261,12 @@ driver without needing another architectural overhaul.
 The VBR will transition from:
 
 ```
-Current:   VBR reads LOADER.BIN from fixed LBA offset
-Future:    VBR reads LOADER.BIN from filesystem by filename
+Current:   VBR reads LOADER.SYS from fixed LBA offset
+Future:    VBR reads LOADER.SYS from filesystem by filename
 ```
 
 The three-stage architecture stays the same. Only the VBR's method of locating
-LOADER.BIN changes.
+LOADER.SYS changes.
 
 ---
 

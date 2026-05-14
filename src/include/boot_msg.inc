@@ -6,13 +6,13 @@
 ;   [FAIL] <message>            — Fatal boot error (halts CPU)
 ;
 ; Example output:
-;   [  OK  ] LOADER.BIN
+;   [  OK  ] LOADER.SYS
 ;   [  OK  ] A20 gate enabled
-;   [  OK  ] KERNEL.BIN
+;   [  OK  ] KERNEL.SYS
 ;   [  OK  ] Syscall handler (INT 0x80)
-;   [  OK  ] FS.BIN
+;   [  OK  ] FS.SYS
 ;   [  OK  ] Filesystem (INT 0x81)
-;   [  OK  ] SHELL.BIN
+;   [  OK  ] SHELL.SYS
 ;
 ; Requirements:
 ;   - The including file must define: puts (print NUL-terminated string)

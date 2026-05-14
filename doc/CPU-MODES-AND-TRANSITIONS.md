@@ -166,7 +166,7 @@ gdt_descriptor:
 
 The A20 line must be enabled before switching to protected mode.  Without it,
 odd-numbered megabytes (1–2 MB, 3–4 MB, etc.) would be inaccessible due to
-address line masking.  mini-os already enables A20 in LOADER.BIN (v0.3.0+).
+address line masking.  mini-os already enables A20 in LOADER.SYS (v0.3.0+).
 
 #### 3.1.3 Disable Interrupts
 
@@ -808,15 +808,15 @@ v0.1.0–v0.4.0 (DONE)              Future M5                Future M6+
 | **SHELL** | 16-bit, uses BIOS | Might stay 16-bit (run before switch) or merge into kernel | Same |
 | **New: KERNEL** | — | 32-bit binary at 0x100000+, VGA/KB/ATA/PIC/PIT drivers, IDT | 64-bit binary, 16-byte IDT entries, mandatory paging, APIC optional |
 | **Build system** | `nasm -f bin` | Same (add `[BITS 32]` in kernel source) | Same (add `[BITS 64]`) |
-| **Disk layout** | VBR + LOADER + SHELL | + KERNEL.BIN at new partition offset | Same |
+| **Disk layout** | VBR + LOADER + SHELL | + KERNEL.SYS at new partition offset | Same |
 | **BIB** | 6 bytes used | + E820 results, + video mode info | + paging root pointer |
 
 ### 7.3 Recommended Implementation Order
 
 **Phase 1 — 32-bit "Hello World" (smallest step)**:
-1. Add GDT to LOADER.BIN (24 bytes of data)
-2. Add mode switch code to LOADER.BIN (~15 instructions)
-3. Create KERNEL.BIN with `[BITS 32]` — just writes "Hello from 32-bit!" to
+1. Add GDT to LOADER.SYS (24 bytes of data)
+2. Add mode switch code to LOADER.SYS (~15 instructions)
+3. Create KERNEL.SYS with `[BITS 32]` — just writes "Hello from 32-bit!" to
    VGA framebuffer at 0xB8000
 4. Verify it boots in Hyper-V
 
@@ -845,8 +845,8 @@ v0.1.0–v0.4.0 (DONE)              Future M5                Future M6+
 | **64-bit** | High | Highest — all of 32-bit + paging, long mode | Modern but complex |
 
 The three-stage boot chain (v0.4.0) was designed specifically to support this
-journey.  LOADER.BIN is the natural place for the mode switch, and the
-architecture supports adding a KERNEL.BIN without restructuring anything.
+journey.  LOADER.SYS is the natural place for the mode switch, and the
+architecture supports adding a KERNEL.SYS without restructuring anything.
 
 ---
 
