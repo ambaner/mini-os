@@ -292,7 +292,7 @@ the interactive command-line interface.  Header:
 
 ```
 SHELL Header:
-  Offset 0:   'MNSH'    Magic identifier (4 bytes)
+  Offset 0:   'MNEX'    Magic identifier (4 bytes)
   Offset 4:   dw N      Shell size in sectors
 ```
 

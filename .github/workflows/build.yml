@@ -96,11 +96,11 @@ jobs:
             throw "FS binary is $($fsmBytes.Length / 512) sectors but header declares $fsmSectors"
         }
 
-        # SHELL: multiple of 512 bytes + MNSH magic
+        # SHELL: multiple of 512 bytes + MNEX magic
         $shlBytes = [System.IO.File]::ReadAllBytes($shl)
         if (($shlBytes.Length % 512) -ne 0) { throw "shell.sys is $($shlBytes.Length) bytes (not a multiple of 512)" }
         $shlMagic = [System.Text.Encoding]::ASCII.GetString($shlBytes, 0, 4)
-        if ($shlMagic -ne 'MNSH') { throw "SHELL magic is '$shlMagic' (expected 'MNSH')" }
+        if ($shlMagic -ne 'MNEX') { throw "SHELL magic is '$shlMagic' (expected 'MNEX')" }
         $shlSectors = [BitConverter]::ToUInt16($shlBytes, 4)
         if ($shlSectors -ne ($shlBytes.Length / 512)) {
             throw "SHELL binary is $($shlBytes.Length / 512) sectors but header declares $shlSectors"
@@ -135,7 +135,7 @@ jobs:
         Write-Host "  loader.sys   : $($ldrBytes.Length) bytes ($ldrSectors sectors), magic MNLD"
         Write-Host "  fs.sys       : $($fsmBytes.Length) bytes ($fsmSectors sectors), magic MNFS"
         Write-Host "  kernel.sys   : $($krnBytes.Length) bytes ($krnSectors sectors), magic MNKN"
-        Write-Host "  shell.sys    : $($shlBytes.Length) bytes ($shlSectors sectors), magic MNSH"
+        Write-Host "  shell.sys    : $($shlBytes.Length) bytes ($shlSectors sectors), magic MNEX"
         Write-Host "  mm.sys       : $($mmBytes.Length) bytes ($mmSectors sectors), magic MNMM"
         Write-Host "  mini-os.img  : $($imgBytes.Length) bytes, partition table OK"
         Write-Host "  mini-os.vhd  : $($vhdBytes.Length) bytes, VHD footer OK"

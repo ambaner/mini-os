@@ -742,7 +742,7 @@ LOADER.SYS     MNLD    MNEX 32B   16    0x0800      NASM+wrap       VBR
 KERNEL.SYS     MNKN    MNEX 32B   16*   0x5000      NASM+wrap       LOADER
 FS.SYS         MNFS    MNEX 32B   16    0x0800      NASM+wrap       KERNEL
 MM.SYS         MNMM    MNEX 32B   16    0x2800      NASM+wrap       KERNEL
-SHELL.SYS      MNSH    MNEX 32B   16    0x3000      NASM+wrap       KERNEL†
+SHELL.SYS      MNEX    MNEX 32B   16    0x3000      NASM+wrap       KERNEL†
 app.mnx        MNEX    MNEX 32B   **    0x9000      NASM+wrap       SHELL
 kernel32.bin   MNKN    MNEX 32B   32    0x100000    Clang+NASM+LD   LOADER
 kernel64.bin   MNKN    MNEX 32B   64    0x100000    Clang+NASM+LD   LOADER
