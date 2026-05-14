@@ -1,0 +1,217 @@
+; =============================================================================
+; DATA — String constants
+; =============================================================================
+
+; --- Shell strings -----------------------------------------------------------
+msg_banner      db 13, 10
+                db '  MNOS v0.7.5', 13, 10
+                db 13, 10, 0
+
+msg_prompt      db 'mnos:\>', 0
+
+msg_unknown     db 'Unknown command: ', 0
+
+msg_help_text   db 'Available commands:', 13, 10
+                db '  sysinfo  - Display system information (5 pages)', 13, 10
+                db '  mem      - Detailed memory info and layout', 13, 10
+                db '  dir      - List files on disk (MNFS)', 13, 10
+                db '  ver      - Show version and build info', 13, 10
+                db '  help     - Show this help message', 13, 10
+                db '  cls      - Clear the screen', 13, 10
+                db '  reboot   - Restart the system', 13, 10, 0
+
+; --- Command name strings (for strcmp) ----------------------------------------
+str_sysinfo     db 'sysinfo', 0
+str_help        db 'help', 0
+str_mem         db 'mem', 0
+str_ver         db 'ver', 0
+str_cls         db 'cls', 0
+str_reboot      db 'reboot', 0
+str_dir         db 'dir', 0
+
+; --- ver command strings -----------------------------------------------------
+msg_ver_text    db '  MNOS v0.7.5', 13, 10
+                db '  Arch:      x86 real mode (16-bit)', 13, 10
+                db '  Assembler: NASM', 13, 10
+                db '  Platform:  Hyper-V Gen 1', 13, 10
+                db '  Boot:      MBR -> VBR -> LOADER -> KERNEL -> SHELL', 13, 10
+                db '  Filesystem: MNFS v1 (flat, INT 0x81)', 13, 10
+                db '  Disk:      16 MB fixed VHD', 13, 10
+                db '  Source:    github.com/ambaner/mini-os', 13, 10, 0
+
+; --- Sysinfo page headers ----------------------------------------------------
+msg_page1_hdr   db '--- Page 1: CPU Information ---', 13, 10, 0
+msg_page2_hdr   db 13, 10, '--- Page 2: Memory ---', 13, 10, 0
+msg_page3_hdr   db 13, 10, '--- Page 3: BIOS Data Area ---', 13, 10, 0
+msg_page4_hdr   db 13, 10, '--- Page 4: Video & Disk ---', 13, 10, 0
+msg_page5_hdr   db 13, 10, '--- Page 5: IVT (Interrupt Vector Table) ---', 13, 10, 0
+
+; --- Memory strings ----------------------------------------------------------
+msg_conv_mem    db '  Conv. memory: ', 0
+msg_ext_mem     db '  Ext. memory:  ', 0
+msg_kb          db ' KB', 13, 10, 0
+msg_na          db 'N/A', 13, 10, 0
+msg_e820_hdr    db '  E820 Memory Map:', 13, 10, 0
+msg_e820_base   db '    Base=', 0
+msg_e820_len    db ' Len=', 0
+msg_e820_type   db ' Type=', 0
+
+; E820 type names
+msg_type_usable   db ' (Usable)', 13, 10, 0
+msg_type_reserved db ' (Reserved)', 13, 10, 0
+msg_type_acpi     db ' (ACPI)', 13, 10, 0
+msg_type_nvs      db ' (ACPI NVS)', 13, 10, 0
+msg_type_bad      db ' (Bad)', 13, 10, 0
+msg_type_unknown  db ' (?)', 13, 10, 0
+
+; --- BDA strings -------------------------------------------------------------
+msg_com_hdr     db '  COM Ports:', 13, 10, 0
+msg_lpt_hdr     db '  LPT Ports:', 13, 10, 0
+msg_equip       db '  Equipment word: ', 0
+msg_vid_mode_bda db '  Video mode (BDA): ', 0
+msg_vid_cols    db '  Screen columns:   ', 0
+msg_vid_pagesz  db '  Video page size:  ', 0
+msg_bytes       db ' bytes', 13, 10, 0
+msg_not_present db 'N/A', 13, 10, 0
+
+; --- Video & Disk strings ----------------------------------------------------
+msg_vid_active  db '  Video mode:    ', 0
+msg_vid_page    db '  Display page:  ', 0
+msg_vid_base    db '  Video mem base: ', 0
+msg_b8000       db '0xB8000 (color)', 13, 10, 0
+msg_b0000       db '0xB0000 (mono)', 13, 10, 0
+msg_cursor      db '  Cursor pos:    ', 0
+msg_cursor_rc   db ' (row,col)', 13, 10, 0
+msg_boot_drv    db '  Boot drive:    ', 0
+msg_drv_geom    db '  Drive geometry:', 13, 10, 0
+msg_drv_cyl     db '    Cylinders: ', 0
+msg_drv_sec     db '    Sectors:   ', 0
+msg_drv_head    db '    Heads:     ', 0
+
+; --- EDD strings -------------------------------------------------------------
+msg_edd_hdr     db '  EDD Support:', 13, 10, 0
+msg_edd_ver     db '    Version:       ', 0
+msg_edd_ext_skip db '    (Extended params not available via syscall)', 13, 10, 0
+msg_edd_none    db '    Not available', 13, 10, 0
+
+; --- IVT strings -------------------------------------------------------------
+ivt_names_table:
+    dw msg_ivt_00, msg_ivt_01, msg_ivt_02, msg_ivt_03
+    dw msg_ivt_04, msg_ivt_05, msg_ivt_06, msg_ivt_07
+
+msg_ivt_00      db '  Divide/0', 13, 10, 0
+msg_ivt_01      db '  Debug', 13, 10, 0
+msg_ivt_02      db '  NMI', 13, 10, 0
+msg_ivt_03      db '  Breakpoint', 13, 10, 0
+msg_ivt_04      db '  Overflow', 13, 10, 0
+msg_ivt_05      db '  BOUND/PrtSc', 13, 10, 0
+msg_ivt_06      db '  Invalid Op', 13, 10, 0
+msg_ivt_07      db '  No Coproc', 13, 10, 0
+
+; --- Sysinfo done message ----------------------------------------------------
+msg_sysinfo_done db 13, 10, '  System info complete.', 13, 10, 0
+
+; --- mem command strings -----------------------------------------------------
+msg_mem_hdr     db 13, 10, '--- Memory Information ---', 13, 10, 0
+
+msg_a20         db '  A20 gate:     ', 0
+msg_a20_on      db 'Enabled (set by loader at boot)', 13, 10, 0
+msg_a20_off     db 'FAILED - all 3 methods failed', 13, 10, 0
+msg_a20_live    db '  A20 verify:   ', 0
+msg_a20_on_short  db 'OK', 13, 10, 0
+msg_a20_off_short db 'FAIL (wrap detected)', 13, 10, 0
+
+msg_layout_hdr  db 13, 10, '  Real-mode memory layout:', 13, 10, 0
+msg_layout      db '    0x00000-0x003FF  1 KB    IVT (Interrupt Vector Table)', 13, 10
+                db '    0x00400-0x004FF  256 B   BDA (BIOS Data Area)', 13, 10
+                db '    0x00500-0x005FF  256 B   Free (BIOS scratch)', 13, 10
+                db '    0x00600-0x0060F  16 B    Boot Info Block (BIB)', 13, 10
+                db '    0x00800-0x027FF  8 KB    FS.BIN (INT 0x81)', 13, 10
+                db '    0x03000-0x04FFF  8 KB    SHELL.BIN (this code)', 13, 10
+                db '    0x05000-0x06FFF  8 KB    KERNEL.BIN (INT 0x80)', 13, 10
+                db '    0x07000-0x07BFF  3 KB    Stack', 13, 10
+                db '    0x07C00-0x07FFF  1 KB    VBR (boot only)', 13, 10
+                db '    0x0A000-0x0BFFF  8 KB    Video RAM', 13, 10
+                db '    0x0C000-0x0FFFF  16 KB   ROM area (BIOS, VGA)', 13, 10
+                db '    0x10000-0xFFFFF  960 KB  Extended (requires A20)', 13, 10, 0
+
+; --- CPU information strings --------------------------------------------------
+msg_cpu_vendor  db '  Vendor:     ', 0
+msg_cpu_family  db '  Family:     ', 0
+msg_cpu_model   db '  Model:      ', 0
+msg_cpu_step    db '  Stepping:   ', 0
+msg_cpu_feat    db '  Features:   ', 0
+msg_no_cpuid    db '  CPUID not supported (pre-486 CPU)', 13, 10, 0
+
+; Feature flag tags
+msg_f_fpu       db 'FPU ', 0
+msg_f_tsc       db 'TSC ', 0
+msg_f_msr       db 'MSR ', 0
+msg_f_cx8       db 'CX8 ', 0
+msg_f_pge       db 'PGE ', 0
+msg_f_cmov      db 'CMOV ', 0
+msg_f_mmx       db 'MMX ', 0
+msg_f_sse       db 'SSE ', 0
+msg_f_sse2      db 'SSE2 ', 0
+msg_f_sse3      db 'SSE3 ', 0
+msg_f_sse41     db 'SSE4.1 ', 0
+msg_f_sse42     db 'SSE4.2 ', 0
+
+; Hypervisor detection
+msg_hv_yes      db '  Hypervisor: Yes', 13, 10, 0
+msg_hv_no       db '  Hypervisor: No', 13, 10, 0
+msg_hv_vendor   db '  HV Vendor:  ', 0
+
+; --- Shared strings ----------------------------------------------------------
+msg_crlf        db 13, 10, 0
+msg_indent      db '    ', 0
+msg_anykey      db 13, 10, '  Press any key...', 0
+
+; =============================================================================
+; RUNTIME DATA
+; =============================================================================
+cmd_buf         times 32 db 0       ; Command input buffer (31 chars + NUL)
+cmd_len         db 0
+e820_buf        times 20 db 0       ; E820 buffer (one entry)
+bda_offset      dw 0                ; Temp storage for BDA offset in loops
+
+; CPUID scratch space
+cpuid_vendor    times 13 db 0       ; 12-byte vendor string + NUL
+cpuid_ver       dd 0
+cpuid_feat_edx  dd 0
+cpuid_feat_ecx  dd 0
+
+; --- dir command strings -------------------------------------------------------
+msg_dir_hdr     db 13, 10, '  Volume: MNFS v1', 13, 10, 0
+msg_dir_cols    db '  Name          Type   Sec    Bytes', 13, 10
+                db '  -----------------------------------', 13, 10, 0
+msg_dir_indent  db '  ', 0
+msg_dir_space   db '   ', 0
+msg_dir_sys     db 'SYS  ', 0
+msg_dir_exe     db 'EXE  ', 0
+msg_dir_dat     db '---  ', 0
+msg_dir_sec_suffix db ' sec', 0
+msg_dir_bytes_suffix db 13, 10, 0
+msg_dir_sep     db '  -----------------------------------', 13, 10, '  ', 0
+msg_dir_summary db ' file(s)           ', 0
+msg_dir_total_bytes db ' bytes', 13, 10, 0
+msg_dir_used    db '  Used: ', 0
+msg_dir_free    db '  Free: ', 0
+msg_dir_of      db ' / ', 0
+msg_dir_kb      db ' KB', 13, 10, 0
+msg_dir_empty   db '  (no files)', 13, 10, 0
+
+; --- dir command data ---------------------------------------------------------
+dir_file_count  dw 0                ; File count for dir command
+dir_used_sec    dw 0                ; Used sectors (from FS_GET_INFO)
+dir_cap_sec     dw 0                ; Capacity sectors (from FS_GET_INFO)
+dir_buffer      times 512 db 0      ; Buffer for MNFS directory data
+
+; IVT loop counter
+ivt_index       db 0
+
+; --- Debug syscall tag and messages -------------------------------------------
+dbg_tag         db 'SHL', 0
+dbg_init        db 'shell starting', 0
+dbg_unknown     db 'unknown command', 0
+

@@ -542,13 +542,13 @@ is PowerShell + NASM.
      ├─ 4. nasm -f bin -I src/include/ -o build/boot/loader.bin src/loader/loader.asm
      │      └─ 1024 bytes (2 sectors): A20 enablement + load_mnex chain
      │
-     ├─ 5. nasm -f bin -I src/include/ -o build/boot/fs.bin src/fs/fs.asm
+     ├─ 5. nasm -f bin -I src/include/ -I src/fs/ -o build/boot/fs.bin src/fs/fs.asm
      │      └─ 1024 bytes (2 sectors): MNFS directory cache + INT 0x81 handler
      │
-     ├─ 6. nasm -f bin -I src/include/ -o build/boot/kernel.bin src/kernel/kernel.asm
-     │      └─ 3072 bytes (6 sectors): INT 0x80 handler + find_file + loads FS+SHELL
+     ├─ 6. nasm -f bin -I src/include/ -I src/kernel/ -o build/boot/kernel.bin src/kernel/kernel.asm
+     │      └─ 3584 bytes (7 sectors): INT 0x80 handler + fault handlers + loads FS+SHELL
      │
-     ├─ 7. nasm -f bin -I src/include/ -o build/boot/shell.bin src/shell/shell.asm
+     ├─ 7. nasm -f bin -I src/include/ -I src/shell/ -o build/boot/shell.bin src/shell/shell.asm
      │      └─ 6144 bytes (12 sectors): interactive shell + dir/sysinfo/mem/ver commands
      │
      ├─ 8. tools/create-disk.ps1 — build raw disk image
@@ -637,11 +637,20 @@ mini-os/
 │   ├── loader/
 │   │   └── loader.asm            LOADER — A20 enablement + finds KERNEL.BIN
 │   ├── kernel/
-│   │   └── kernel.asm            KERNEL — INT 0x80 + loads FS.BIN + SHELL
+│   │   ├── kernel.asm            KERNEL — manifest (entry point + includes)
+│   │   ├── kernel_syscall.inc    INT 0x80 dispatcher + all syscall handlers
+│   │   ├── kernel_data.inc       Boot messages, filenames, DAP
+│   │   └── kernel_fault.inc      PIC remap + CPU exception handlers
 │   ├── fs/
 │   │   └── fs.asm                FS — INT 0x81 filesystem API + dir cache
 │   └── shell/
-│       └── shell.asm             SHELL — interactive shell (user-mode MNEX)
+│       ├── shell.asm             SHELL — manifest (init + dispatch + includes)
+│       ├── shell_cmd_simple.inc  Commands: cls, reboot, help, ver
+│       ├── shell_cmd_dir.inc     Command: dir (MNFS file listing)
+│       ├── shell_cmd_mem.inc     Command: mem (memory info)
+│       ├── shell_cmd_sysinfo.inc Command: sysinfo (5-page system info)
+│       ├── shell_readline.inc    Input subroutines (readline, strcmp)
+│       └── shell_data.inc        String constants + runtime data
 ├── tools/
 │   ├── build.ps1                 Build logic (assembles 6 binaries with -I include)
 │   ├── create-disk.ps1           MNFS directory + contiguous file packing

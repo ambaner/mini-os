@@ -70,7 +70,8 @@ function Build-Binary {
     $label = if ($DebugBuild) { "Assembling ${Name} (DEBUG)..." } else { "Assembling ${Name}..." }
     Write-Step $label
 
-    $flags = @('-f', 'bin', '-I', "$IncludeDir/", '-o', $BinPath)
+    $srcDir = Split-Path $AsmPath -Parent
+    $flags = @('-f', 'bin', '-I', "$IncludeDir/", '-I', "$srcDir/", '-o', $BinPath)
     if ($DebugBuild) { $flags = @('-dDEBUG') + $flags }
     $flags += $AsmPath
     & $nasm @flags

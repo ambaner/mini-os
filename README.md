@@ -1,6 +1,6 @@
 # mini-os
 
-A minimalistic operating system, built from scratch — currently at **v0.7.4**.
+A minimalistic operating system, built from scratch — currently at **v0.7.5**.
 MBR reads the partition table, chain-loads a VBR which loads a stage-2 loader
 (A20 gate enablement), which loads a 16-bit kernel (KERNEL.BIN) that provides
 an INT 0x80 syscall interface, which loads the filesystem module (FS.BIN) with
@@ -218,6 +218,7 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.7.2` | **Assert Macros** | ASSERT, ASSERT_CF_CLEAR, ASSERT_MAGIC — halt + register dump on failure; 0 bytes in release |
 | `v0.7.3` | **CPU Fault Handlers** | Trap #DE, #DB, #OF, #BR, #UD, #NM, #DF — exception name + CS:IP + register dump; debug only |
 | `v0.7.4` | **Release Fault Handlers** | Fault handlers in both builds; PIC remapped (IRQ→0x20); full crash screen with registers, FLAGS, stack; 7 vectors |
+| `v0.7.5` | **Source File Split** | Kernel & shell split into focused include files; binary-identical output; build script adds per-module include paths |
 
 ```cmd
 git checkout v0.1.0      # see the project at any prior milestone

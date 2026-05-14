@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.7.5] — 2026-05-13
+
+### Changed
+- **Source file split** — monolithic `kernel.asm` (1450 lines) and `shell.asm`
+  (1582 lines) split into focused include files organized by functionality:
+  - Kernel: `kernel_syscall.inc`, `kernel_data.inc`, `kernel_fault.inc`
+  - Shell: `shell_cmd_simple.inc`, `shell_cmd_dir.inc`, `shell_cmd_mem.inc`,
+    `shell_cmd_sysinfo.inc`, `shell_readline.inc`, `shell_data.inc`
+- Build script now passes source directory as additional NASM include path (`-I`)
+- Binary output is byte-identical to v0.7.4 (no functional changes)
+
 ## [0.7.4] — 2026-05-13
 
 ### Changed

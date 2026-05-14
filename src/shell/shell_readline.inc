@@ -1,0 +1,161 @@
+; =============================================================================
+; SUBROUTINES
+;
+; Only pure-logic routines remain here.  All I/O routines (puts, putc,
+; puthex8, print_hex16, print_dec16, wait_key, check_a20) have been removed
+; because the kernel provides equivalent syscalls.
+; =============================================================================
+
+; ---------------------------------------------------------------------------
+; readline — Read a line of input into cmd_buf (up to 31 chars).
+;
+; Uses SYS_READ_KEY for keyboard input and SYS_PRINT_CHAR for echo.
+; Handles Enter (submit), Backspace (delete), and printable ASCII.
+; Converts uppercase to lowercase for case-insensitive command matching.
+; ---------------------------------------------------------------------------
+readline:
+    xor cx, cx                      ; CX = character count
+
+.read_char:
+    mov ah, SYS_READ_KEY            ; Wait for keypress via kernel syscall
+    int 0x80                        ; Returns AH=scancode, AL=ASCII
+    ; Note: AH now has scancode, not the syscall number anymore
+
+    cmp al, 0x0D                    ; Enter key?
+    je .read_done
+
+    cmp al, 0x08                    ; Backspace?
+    je .read_bs
+
+    cmp al, 0x20                    ; Below space = control char -> skip
+    jb .read_char
+    cmp al, 0x7E                    ; Above '~' -> skip
+    ja .read_char
+
+    cmp cx, 31                      ; Buffer full?
+    jge .read_char
+
+    ; Convert uppercase to lowercase for case-insensitive matching
+    cmp al, 'A'
+    jb .no_lower
+    cmp al, 'Z'
+    ja .no_lower
+    add al, 32
+.no_lower:
+
+    ; Store character in buffer
+    mov bx, cmd_buf
+    add bx, cx
+    mov [bx], al
+    inc cx
+
+    ; Echo the character to screen via SYS_PRINT_CHAR
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
+    jmp .read_char
+
+.read_bs:
+    test cx, cx                     ; Nothing to delete?
+    jz .read_char
+
+    dec cx                          ; Remove last character
+
+    ; Backspace echo: move cursor back, print space, move back again
+    mov al, 0x08                    ; Backspace character
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
+    mov al, ' '                     ; Overwrite with space
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
+    mov al, 0x08                    ; Move cursor back again
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
+    jmp .read_char
+
+.read_done:
+    ; NUL-terminate the input buffer
+    mov bx, cmd_buf
+    add bx, cx
+    mov byte [bx], 0
+    mov [cmd_len], cl
+
+    ; Print newline after the entered command
+    mov si, msg_crlf
+    mov ah, SYS_PRINT_STRING
+    int 0x80
+    ret
+
+; ---------------------------------------------------------------------------
+; strcmp — Compare two NUL-terminated strings (case-sensitive).
+;   Input:  DS:SI -> string 1, DS:DI -> string 2
+;   Output: ZF set if strings are equal
+;
+; Pure logic — no hardware access, no syscalls needed.
+; ---------------------------------------------------------------------------
+strcmp:
+    push si
+    push di
+.cmp_loop:
+    lodsb
+    mov ah, [di]
+    inc di
+    cmp al, ah
+    jne .cmp_ne
+    test al, al
+    jnz .cmp_loop
+    pop di
+    pop si
+    ret                             ; ZF is set (equal)
+
+.cmp_ne:
+    pop di
+    pop si
+    or al, 1                        ; Clear ZF (not equal)
+    ret
+
+; ---------------------------------------------------------------------------
+; rjust_dec16 — Print DX as unsigned decimal, right-justified in CL-wide field
+;
+; Input:  DX = value to print, CL = minimum field width
+; Output: none
+; Preserves: AX, BX, CX, DX, SI, DI
+; ---------------------------------------------------------------------------
+rjust_dec16:
+    push ax
+    push bx
+    push cx
+    push dx
+
+    ; Count digits of DX
+    mov ax, dx
+    xor ch, ch                      ; CH = digit count
+.rj_count:
+    inc ch
+    xor dx, dx
+    mov bx, 10
+    div bx
+    test ax, ax
+    jnz .rj_count
+
+    ; Print (CL - CH) leading spaces
+    sub cl, ch
+    jbe .rj_print
+.rj_pad:
+    push cx
+    mov al, ' '
+    mov ah, SYS_PRINT_CHAR
+    int 0x80
+    pop cx
+    dec cl
+    jnz .rj_pad
+
+.rj_print:
+    pop dx                          ; Restore original value
+    mov ah, SYS_PRINT_DEC16
+    int 0x80
+
+    pop cx
+    pop bx
+    pop ax
+    ret
+
