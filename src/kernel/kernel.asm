@@ -46,9 +46,9 @@
 ; =============================================================================
 kernel_magic    db 'MNKN'           ; Magic identifier — kernel
 %ifdef DEBUG
-kernel_sectors  dw 11               ; Kernel size in sectors (debug build)
+kernel_sectors  dw 12               ; Kernel size in sectors (debug build)
 %else
-kernel_sectors  dw 7                ; Kernel size in sectors (release build)
+kernel_sectors  dw 8                ; Kernel size in sectors (release build)
 %endif
 
 ; =============================================================================
@@ -113,6 +113,43 @@ kernel_start:
     call boot_ok
     DBG "KERNEL: INT 0x81 filesystem ready"
 
+    ; --- Load MM.BIN (memory manager) at 0x2800 ------------------------------
+    ; MM.BIN provides dynamic heap allocation via INT 0x82.
+    ; Use 0x2000 as scratch buffer for directory read (safe — above FS.BIN,
+    ; below MM target at 0x2800).
+    ; Select filename based on boot mode (release=MM, debug=MMD).
+    mov bx, 0x2000                  ; Scratch buffer
+    cmp byte [BIB_BOOT_MODE], 1
+    je .use_mmd
+    mov si, fname_mm                ; "MM      BIN"
+    jmp .do_find_mm
+.use_mmd:
+    mov si, fname_mmd               ; "MMD     BIN"
+.do_find_mm:
+    call find_file
+    jc .mm_find_fail
+
+    ; EAX = partition-relative start sector, CX = size in sectors
+    mov bx, MM_OFF                  ; Load address (0x2800)
+    mov ecx, 'MNMM'                ; Expected magic signature
+    mov dh, MM_MAX_SECTORS          ; Maximum sector count (4)
+    call load_mnex
+    jc .mm_load_fail
+    ASSERT_MAGIC MM_OFF, 'MNMM', "MM.BIN magic invalid after load"
+
+    mov si, msg_mm
+    call boot_ok
+    DBG "KERNEL: MM.BIN loaded at 0x2800"
+
+    ; --- Initialize MM.BIN (installs INT 0x82) --------------------------------
+    ; MM.BIN's init entry point is at offset 6 (right after the 6-byte header).
+    call MM_OFF + MNEX_HDR_SIZE
+    jc .mm_init_fail
+
+    mov si, msg_mm_init
+    call boot_ok
+    DBG "KERNEL: INT 0x82 memory manager ready"
+
     ; --- Load SHELL.BIN at 0x3000 --------------------------------------------
     ; Use 0x2000 as scratch buffer for directory read (safe — between LOADER
     ; area and SHELL area, and FS.BIN at 0x0800 is only ~1 KB).
@@ -164,6 +201,18 @@ kernel_start:
 
 .shell_load_fail:
     mov si, msg_sh_load
+    call boot_fail
+
+.mm_find_fail:
+    mov si, msg_mm_find
+    call boot_fail
+
+.mm_load_fail:
+    mov si, msg_mm_load
+    call boot_fail
+
+.mm_init_fail:
+    mov si, msg_mm_initf
     call boot_fail
 
 ; =============================================================================
@@ -257,7 +306,7 @@ puts:
 ; PADDING — fill to sector boundary
 ; =============================================================================
 %ifdef DEBUG
-times (11 * 512) - ($ - $$) db 0
+times (12 * 512) - ($ - $$) db 0
 %else
-times (7 * 512) - ($ - $$) db 0
+times (8 * 512) - ($ - $$) db 0
 %endif

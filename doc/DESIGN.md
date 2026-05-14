@@ -141,11 +141,13 @@ IRQ/exception vector conflicts).
 | `0x0000:0x0400` – `0x0000:0x04FF` | BIOS Data Area (BDA) |
 | `0x0000:0x0600` – `0x0000:0x060F` | **Boot Info Block (BIB)** — shared parameters |
 | `0x0000:0x0800` – `0x0000:0x27FF` | **FS.BIN** (8 KB max, loaded by kernel; replaces LOADER at runtime) |
+| `0x0000:0x2800` – `0x0000:0x2FFF` | **MM.BIN** (2 KB max, loaded by kernel; memory manager INT 0x82) |
 | `0x0000:0x3000` – `0x0000:0x4FFF` | **SHELL.BIN** (8 KB max, loaded by kernel) |
-| `0x0000:0x5000` – `0x0000:0x6FFF` | **KERNEL.BIN** (8 KB max, 7 sectors used) |
+| `0x0000:0x5000` – `0x0000:0x6FFF` | **KERNEL.BIN** (8 KB max, 8 sectors used) |
 | `0x0000:0x7C00` – `0x0000:0x7FFF` | **VBR** (2 sectors, boot-time only) |
 | `0x0000:0x7BFE` ↓ | Stack (grows downward from 0x7C00) |
 | `0x0000:0x7E00` – `0x0000:0x9DFF` | VBR load buffer (MBR uses this temporarily) |
+| `0x0000:0x8000` – `0x0000:0xF7FF` | **HEAP** (30 KB, managed by MM.BIN via INT 0x82) |
 
 #### Boot Info Block (BIB) — 0x0600
 
@@ -286,11 +288,13 @@ Sector 2050             → MNFS directory table (1 sector, up to 15 entries)
 Sector 2051+            → Files packed contiguously:
                             LOADER.BIN  (3 sectors)
                             FS.BIN      (2 sectors)
-                            KERNEL.BIN  (7 sectors)
+                            KERNEL.BIN  (8 sectors)
                             SHELL.BIN   (12 sectors)
+                            MM.BIN      (1 sector)
                             FSD.BIN     (4 sectors)
-                            KERNELD.BIN (10 sectors)
+                            KERNELD.BIN (12 sectors)
                             SHELLD.BIN  (12 sectors)
+                            MMD.BIN     (2 sectors)
 Remaining sectors       → Zeroed (available for future files)
 ```
 
@@ -652,6 +656,8 @@ mini-os/
 │   │   └── kernel_stack.inc      Stack canary (init, check, macros)
 │   ├── fs/
 │   │   └── fs.asm                FS — INT 0x81 filesystem API + dir cache
+│   ├── mm/
+│   │   └── mm.asm                MM — INT 0x82 heap allocator (MCB chain)
 │   └── shell/
 │       ├── shell.asm             SHELL — manifest (init + dispatch + includes)
 │       ├── shell_cmd_simple.inc  Commands: cls, reboot, help, ver
@@ -661,7 +667,7 @@ mini-os/
 │       ├── shell_readline.inc    Input subroutines (readline, strcmp)
 │       └── shell_data.inc        String constants + runtime data
 ├── tools/
-│   ├── build.ps1                 Build logic (assembles 6 binaries with -I include)
+│   ├── build.ps1                 Build logic (assembles all binaries with -I include)
 │   ├── create-disk.ps1           MNFS directory + contiguous file packing
 │   ├── create-vhd.bat            VHD tool — batch wrapper
 │   ├── create-vhd.ps1            Raw image → fixed VHD converter

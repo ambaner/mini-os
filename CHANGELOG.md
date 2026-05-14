@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.9.0] — 2026-05-13
+
+### Added
+- **Memory Manager (MM.BIN)** — MNMM heap allocator at `0x2800`, providing
+  dynamic memory allocation via `INT 0x82`.  Manages a 30 KB heap at
+  `0x8000`–`0xF7FF` using MCB-style 4-byte block headers.
+  - `MEM_ALLOC` (AH=0x01): First-fit allocation with word alignment
+  - `MEM_FREE` (AH=0x02): Free with forward coalescing
+  - `MEM_AVAIL` (AH=0x03): Query largest free block and total free memory
+  - `MEM_INFO` (AH=0x04): Full heap statistics (total/used/free/block count)
+- **`src/mm/mm.asm`** — new source file for MM.BIN (release: 1 sector,
+  debug: 2 sectors)
+- **MM constants in `memory.inc`** — `MM_OFF`, `HEAP_START`, `HEAP_END`,
+  `MCB_*` header layout constants, `MEM_*` syscall numbers
+- **Kernel MM load sequence** — kernel now loads and initializes MM.BIN
+  between FS init and SHELL load; boot message "Memory manager (INT 0x82)"
+
+### Changed
+- **Kernel** release 7→8 sectors, debug 11→12 sectors (MM load code + strings)
+- **MNFS directory** 7→9 files (added MM.BIN + MMD.BIN)
+- **Disk layout** 51→57 total data sectors
+- **Build pipeline** assembles MM.BIN and MMD.BIN; `create-disk.ps1` accepts
+  `-MmPath` and `-MmDbgPath` parameters
+- **Boot chain** now: MBR → VBR → LOADER → KERNEL → FS.BIN → MM.BIN → SHELL.BIN
+
+---
+
 ## [0.8.1] — 2026-05-13
 
 ### Added

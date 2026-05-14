@@ -39,6 +39,7 @@ $LoaderAsm  = Join-Path $Root 'src\loader\loader.asm'
 $KernelAsm  = Join-Path $Root 'src\kernel\kernel.asm'
 $FsAsm      = Join-Path $Root 'src\fs\fs.asm'
 $ShellAsm   = Join-Path $Root 'src\shell\shell.asm'
+$MmAsm      = Join-Path $Root 'src\mm\mm.asm'
 $IncludeDir = Join-Path $Root 'src\include'
 
 # Shared binaries
@@ -50,11 +51,13 @@ $LoaderBin  = Join-Path $BuildDir 'loader.bin'
 $FsBin      = Join-Path $BuildDir 'fs.bin'
 $KernelBin  = Join-Path $BuildDir 'kernel.bin'
 $ShellBin   = Join-Path $BuildDir 'shell.bin'
+$MmBin      = Join-Path $BuildDir 'mm.bin'
 
 # Debug binaries
 $FsDbgBin     = Join-Path $BuildDir 'fsd.bin'
 $KernelDbgBin = Join-Path $BuildDir 'kerneld.bin'
 $ShellDbgBin  = Join-Path $BuildDir 'shelld.bin'
+$MmDbgBin     = Join-Path $BuildDir 'mmd.bin'
 
 $RawImg     = Join-Path $BuildDir 'mini-os.img'
 $VhdOut     = Join-Path $BuildDir 'mini-os.vhd'
@@ -144,12 +147,14 @@ Write-Step '--- Release variants ---'
 Build-Binary -Name 'FS'     -AsmPath $FsAsm     -BinPath $FsBin
 Build-Binary -Name 'KERNEL' -AsmPath $KernelAsm -BinPath $KernelBin
 Build-Binary -Name 'SHELL'  -AsmPath $ShellAsm  -BinPath $ShellBin
+Build-Binary -Name 'MM'     -AsmPath $MmAsm     -BinPath $MmBin
 
 # ---------- assemble debug variants -----------------------------------------
 Write-Step '--- Debug variants ---'
 Build-Binary -Name 'FSD'     -AsmPath $FsAsm     -BinPath $FsDbgBin     -Debug
 Build-Binary -Name 'KERNELD' -AsmPath $KernelAsm -BinPath $KernelDbgBin -Debug
 Build-Binary -Name 'SHELLD'  -AsmPath $ShellAsm  -BinPath $ShellDbgBin  -Debug
+Build-Binary -Name 'MMD'     -AsmPath $MmAsm     -BinPath $MmDbgBin     -Debug
 
 # ---------- create partitioned disk image -----------------------------------
 Write-Step 'Creating partitioned disk image...'
@@ -157,7 +162,9 @@ $DiskScript = Join-Path $ToolsDir 'create-disk.ps1'
 & $DiskScript `
     -MbrPath $MbrBin -VbrPath $VbrBin -LoaderPath $LoaderBin `
     -FsPath $FsBin -KernelPath $KernelBin -ShellPath $ShellBin `
+    -MmPath $MmBin `
     -FsDbgPath $FsDbgBin -KernelDbgPath $KernelDbgBin -ShellDbgPath $ShellDbgBin `
+    -MmDbgPath $MmDbgBin `
     -OutputPath $RawImg -SizeMB $DiskSizeMB
 
 # ---------- create VHD ------------------------------------------------------

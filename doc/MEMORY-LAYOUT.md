@@ -52,9 +52,9 @@ or data in real mode — they are memory-mapped hardware regions.
 
 ---
 
-## 2. mini-os Memory Map (v0.7.0)
+## 2. mini-os Memory Map (v0.9.0)
 
-mini-os uses the lower portion of conventional memory (0x0500–0x7FFF).  The
+mini-os uses the lower portion of conventional memory (0x0500–0xF7FF).  The
 layout was designed around four constraints:
 
 1. **BIOS expects the boot sector at 0x7C00** — this is non-negotiable.
@@ -88,7 +88,10 @@ Address       Size      Contents                 Lifetime
                           7 KB growth room)         filesystem handler, caches
                                                     MNFS directory (512 B)
 
-0x0000:0x2800  2048 B   (Unused gap)              Available for future use
+0x0000:0x2800  2048 B   MM.BIN                    Permanent (OS runtime)
+               (2 KB    (1 sector = 512 B release, Loaded by KERNEL, installs
+                max)     2 sectors = 1 KB debug)    INT 0x82 memory manager,
+                                                    manages heap at 0x8000
 
 0x0000:0x3000  8192 B   SHELL.BIN                 Permanent (OS runtime)
                (8 KB     (12 sectors = 6 KB used,  Loaded by KERNEL, runs
@@ -96,9 +99,9 @@ Address       Size      Contents                 Lifetime
                                                     via INT 0x80 syscalls
 
 0x0000:0x5000  8192 B   KERNEL.BIN                Permanent (OS runtime)
-               (8 KB     (7 sectors = 3.5 KB used, Loaded by LOADER, installs
-                max)      4.5 KB growth room)       INT 0x80 syscall handler,
-                                                    loads FS.BIN + SHELL
+               (8 KB     (8 sectors = 4 KB used,   Loaded by LOADER, installs
+                max)      4 KB growth room)         INT 0x80 syscall handler,
+                                                    loads FS.BIN + MM.BIN + SHELL
 
 0x0000:0x7000  3072 B   Stack zone (grows ↓)      Active (see §3)
                (3 KB)    SP starts at 0x7C00,
@@ -111,6 +114,13 @@ Address       Size      Contents                 Lifetime
 0x0000:0x7E00  8192 B   VBR load buffer           MBR loads VBR here
                (16 sec   (temporary staging area)  before copying to 0x7C00
                 max)                                — dead after boot
+
+0x0000:0x8000  30720 B  HEAP (managed by MM.BIN)  Dynamic allocation region
+               (30 KB)   MCB-style block headers,   Initialized as single free
+                          first-fit allocation,      block by mm_init; available
+                          INT 0x82 API               via INT 0x82 MEM_ALLOC/FREE
+
+0x0000:0xF800           (End of heap)             0xF7FF is last usable byte
 
 0x0000:0x9FC00           EBDA / BIOS reserved      Platform-dependent
 ...

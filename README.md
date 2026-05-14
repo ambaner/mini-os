@@ -1,10 +1,11 @@
 # mini-os
 
-A minimalistic operating system, built from scratch — currently at **v0.8.1**.
+A minimalistic operating system, built from scratch — currently at **v0.9.0**.
 MBR reads the partition table, chain-loads a VBR which loads a stage-2 loader
 (A20 gate enablement + boot menu), which loads a 16-bit kernel (KERNEL.BIN) that provides
 an INT 0x80 syscall interface, which loads the filesystem module (FS.BIN) with
-an INT 0x81 filesystem API, and finally the interactive shell (`mnos:\>`) with
+an INT 0x81 filesystem API, the memory manager (MM.BIN) with an INT 0x82
+dynamic heap allocator, and finally the interactive shell (`mnos:\>`) with
 commands for system info, CPU details, memory diagnostics, directory listing,
 version info, and more.  A boot menu lets the user choose between Release and
 Debug kernel configurations from a single disk image.
@@ -28,7 +29,7 @@ build.bat
 
 The build script will:
 1. Download NASM into `tools/nasm/` if not already installed
-2. Assemble all binaries — release **and** debug variants (9 total)
+2. Assemble all binaries — release **and** debug variants (11 total)
 3. Create `build/boot/mini-os.vhd` (16 MB fixed VHD with both variants)
 
 ### Debug serial output
@@ -89,7 +90,7 @@ VHD — no need to rebuild or swap images.
 After the boot chain completes, you'll see the shell:
 
 ```
-  MNOS v0.8.1 [Release]
+  MNOS v0.9.0 [Release]
 
 mnos:\>
 ```
@@ -127,14 +128,14 @@ mini-os/
 │   ├── FILESYSTEM.md         # MNFS specification & FS.BIN architecture
 │   ├── BOOT-LAYOUT-RATIONALE.md  # Boot chain rationale (DOS/Windows/Linux comparisons)
 │   ├── MEMORY-LAYOUT.md      # Memory map, stack analysis, protected-mode roadmap
-│   ├── MEMORY-MANAGER.md     # Memory manager design (future)
+│   ├── MEMORY-MANAGER.md     # Memory manager design & implementation (MM.BIN)
 │   ├── CPU-MODES-AND-TRANSITIONS.md  # 16→32→64-bit journey, BIOS vs UEFI
 │   ├── MNEX-BINARY-FORMAT.md # Custom binary format spec, toolchain, build pipeline
 │   └── SYSTEM-CALLS.md       # User↔kernel boundary, IVT/IDT/SYSCALL mechanisms
 ├── src/
 │   ├── include/               # Shared constants & subroutines (%include)
 │   │   ├── bib.inc            # Boot Info Block field addresses
-│   │   ├── memory.inc         # Component load addresses + stack canary constants
+│   │   ├── memory.inc         # Component load addresses, stack canary, MM constants
 │   │   ├── mnfs.inc           # MNFS filesystem constants & INT 0x81 numbers
 │   │   ├── syscalls.inc       # INT 0x80 syscall function numbers
 │   │   ├── find_file.inc      # Bootstrap MNFS directory lookup subroutine
@@ -148,11 +149,13 @@ mini-os/
 │   ├── loader/
 │   │   └── loader.asm         # Stage-2 loader — A20 gate, boot menu, loads KERNEL
 │   ├── kernel/
-│   │   ├── kernel.asm         # 16-bit kernel — INT 0x80 syscalls, loads FS + SHELL
+│   │   ├── kernel.asm         # 16-bit kernel — INT 0x80 syscalls, loads FS + MM + SHELL
 │   │   ├── kernel_syscall.inc # Syscall dispatcher + 27 handlers (jump table)
 │   │   ├── kernel_data.inc    # Kernel string constants, filenames, DAP
 │   │   ├── kernel_fault.inc   # CPU exception fault handlers + PIC remap
 │   │   └── kernel_stack.inc   # Stack canary (debug-only overflow detection)
+│   ├── mm/
+│   │   └── mm.asm             # Memory manager — INT 0x82 API, heap allocator
 │   ├── fs/
 │   │   └── fs.asm             # Filesystem module — INT 0x81 API, MNFS directory cache
 │   └── shell/
@@ -256,6 +259,7 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.7.5` | **Source File Split** | Kernel & shell split into focused include files; binary-identical output; build script adds per-module include paths |
 | `v0.8.0` | **Dual-Boot Menu** | Boot menu (release/debug); unified VHD with both variants; BIB boot_mode; shell shows [Release]/[Debug] |
 | `v0.8.1` | **Stack Canary** | Debug-only stack overflow detection; canary at 0x7000 checked on every syscall; fatal halt with diagnostic on corruption |
+| `v0.9.0` | **Memory Manager** | MM.BIN heap allocator at 0x2800; INT 0x82 API (alloc/free/avail/info); 30 KB heap at 0x8000; MCB block headers; first-fit with coalescing |
 
 ```cmd
 git checkout v0.1.0      # see the project at any prior milestone
