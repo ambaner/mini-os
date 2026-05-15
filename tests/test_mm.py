@@ -5,6 +5,7 @@ boundary conditions, and error handling — all via Unicorn Engine emulation.
 """
 
 import pytest
+from pathlib import Path
 from tests.harness.emulator import MiniOSEmulator
 from tests.harness.assembler import assemble_stub
 from tests.conftest import register_coverage
@@ -20,8 +21,10 @@ from tests.harness.constants import (
 
 # Accumulate all executed addresses across tests for coverage
 _all_executed: set[int] = set()
+_all_edges: set[tuple[int, int]] = set()
 _binary_size: int = 0
 _code_base: int = 0
+_binary_path: Path | None = None
 
 
 @pytest.fixture(scope="module")
@@ -33,14 +36,16 @@ def mm_bin():
 @pytest.fixture
 def mm(mm_bin):
     """Create a fresh emulator with MM stub loaded and heap initialized."""
-    global _binary_size, _code_base
+    global _binary_size, _code_base, _binary_path
     emu = MiniOSEmulator()
     emu.load(mm_bin)
     _binary_size = emu.code_size
     _code_base = emu.code_base
+    _binary_path = mm_bin
     # Run the init entry to set up the heap
     emu.run(MM_INIT_ENTRY)
     _all_executed.update(emu.coverage_in_binary)
+    _all_edges.update(emu.edges_in_binary)
     return emu
 
 
@@ -50,6 +55,7 @@ def _alloc(emu, size, owner=0):
     emu.set_reg("dx", owner & 0xFF)
     emu.run(MM_ALLOC_ENTRY)
     _all_executed.update(emu.coverage_in_binary)
+    _all_edges.update(emu.edges_in_binary)
     return emu.reg("bx"), emu.cf
 
 
@@ -58,6 +64,7 @@ def _free(emu, ptr):
     emu.set_reg("bx", ptr)
     emu.run(MM_FREE_ENTRY)
     _all_executed.update(emu.coverage_in_binary)
+    _all_edges.update(emu.edges_in_binary)
     return emu.cf
 
 
@@ -65,6 +72,7 @@ def _avail(emu):
     """Helper: call mm_avail. Returns (largest, total)."""
     emu.run(MM_AVAIL_ENTRY)
     _all_executed.update(emu.coverage_in_binary)
+    _all_edges.update(emu.edges_in_binary)
     return emu.reg("ax"), emu.reg("dx")
 
 
@@ -72,6 +80,7 @@ def _info(emu):
     """Helper: call mm_info. Returns (total, used, free, blocks)."""
     emu.run(MM_INFO_ENTRY)
     _all_executed.update(emu.coverage_in_binary)
+    _all_edges.update(emu.edges_in_binary)
     return (
         emu.reg("ax"),
         emu.reg("bx"),
@@ -338,4 +347,5 @@ def _register_coverage_after_all():
     yield
     if _binary_size > 0:
         in_binary = {a for a in _all_executed if _code_base <= a < _code_base + _binary_size}
-        register_coverage("mm_allocator", _binary_size, len(in_binary))
+        register_coverage("mm_allocator", _binary_size, len(in_binary),
+                          edges=_all_edges, binary_path=_binary_path)

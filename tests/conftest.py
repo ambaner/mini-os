@@ -13,13 +13,25 @@ from tests.harness.coverage import generate_report, print_summary
 _coverage_data: dict[str, dict] = {}
 
 
-def register_coverage(routine_name: str, total_addrs: int, hit_addrs: int):
-    """Register coverage data for a routine (called by test modules)."""
+def register_coverage(routine_name: str, total_addrs: int, hit_addrs: int,
+                      edges: set[tuple[int, int]] | None = None,
+                      binary_path: str | Path | None = None):
+    """Register coverage data for a routine (called by test modules).
+
+    Args:
+        routine_name: Name of the routine being tested.
+        total_addrs: Total instruction addresses in the binary.
+        hit_addrs: Number of addresses actually executed.
+        edges: Optional set of (from, to) edges for branch coverage.
+        binary_path: Optional path to the binary for branch analysis.
+    """
     pct = (hit_addrs / total_addrs * 100) if total_addrs > 0 else 0
     _coverage_data[routine_name] = {
         "total_addrs": total_addrs,
         "hit_addrs": hit_addrs,
         "percentage": pct,
+        "edges": edges,
+        "binary_path": binary_path,
     }
 
 

@@ -36,6 +36,8 @@ class MiniOSEmulator:
         self.code_base = code_base
         self.code_size = 0
         self._executed_addrs: set[int] = set()
+        self._executed_edges: set[tuple[int, int]] = set()
+        self._prev_addr: int | None = None
         self._instruction_count = 0
 
         # Create 16-bit real-mode emulator
@@ -55,8 +57,11 @@ class MiniOSEmulator:
         self.uc.hook_add(UC_HOOK_CODE, self._hook_code)
 
     def _hook_code(self, uc, address, size, user_data):
-        """Instruction-level hook for coverage and timeout."""
+        """Instruction-level hook for coverage, edge tracking, and timeout."""
         self._executed_addrs.add(address)
+        if self._prev_addr is not None:
+            self._executed_edges.add((self._prev_addr, address))
+        self._prev_addr = address
         self._instruction_count += 1
         if self._instruction_count > 100_000:
             uc.emu_stop()
@@ -184,3 +189,12 @@ class MiniOSEmulator:
         """Executed addresses that fall within the loaded binary."""
         end = self.code_base + self.code_size
         return {a for a in self._executed_addrs if self.code_base <= a < end}
+
+    @property
+    def edges_in_binary(self) -> set[tuple[int, int]]:
+        """Executed edges (from→to) where both endpoints are within the binary."""
+        end = self.code_base + self.code_size
+        return {
+            (f, t) for f, t in self._executed_edges
+            if self.code_base <= f < end and self.code_base <= t < end
+        }

@@ -245,7 +245,12 @@ python -m pytest tests/ -v    # coverage is auto-generated on session finish
 ```
 
 **64 tests** across 4 modules: `shell_parse_args` (15), `run_parse_filename` (9),
-`strcmp` (13), `mm_allocator` (27). Tests also run automatically in CI via GitHub Actions.
+`strcmp` (13), `mm_allocator` (27). Tests run automatically in CI via GitHub Actions.
+
+**Coverage metrics:**
+- **Statement coverage** — % of binary addresses executed by tests
+- **Branch coverage** — % of conditional jump outcomes (taken + fall-through) exercised
+- **Historical trends** — Chart.js graph tracking coverage across last 50 CI runs
 
 ## Design & Architecture
 
@@ -327,7 +332,7 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.9.6` | **Program Loader + Debug Diagnostics** | Implicit program execution (type `hello` to run HELLO.MNX); FS_FIND_BASE syscall; INT depth tracking; DAP hex dump; EDI-clobbers-DI bug fix |
 | `v0.9.7` | **Machine Monitor (mnmon)** | MNMON.MNX — WinDbg-style memory monitor (db/dw/eb/ew/g); standalone user program; proves interactive program loading |
 | `v0.9.8` | **Parsed Arguments (argc/argv)** | Layer 2 command-line parsing; SYS_GET_ARGC/SYS_GET_ARGV syscalls; double-quote support; max 15 args; doc/COMMAND-LINE.md |
-| `v0.9.9` | **Unit Test Framework** | Python + Unicorn Engine test harness; 64 tests across 4 modules; MM allocator tests; coverage reporting to GitHub Pages; CI/CD test job; doc/TESTING.md |
+| `v0.9.9` | **Unit Test Framework** | Python + Unicorn Engine test harness; 64 tests across 4 modules; statement + branch coverage with Capstone; historical trend tracking (Chart.js); CI/CD test job; doc/TESTING.md |
 
 ```cmd
 git checkout v0.1.0      # see the project at any prior milestone

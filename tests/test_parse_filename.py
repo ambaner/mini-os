@@ -5,13 +5,16 @@ Tests the routine that parses "filename.ext args" into an 11-byte padded
 """
 
 import pytest
+from pathlib import Path
 from tests.harness.emulator import MiniOSEmulator
 from tests.harness.constants import STRING_AREA
 from tests.conftest import register_coverage
 
 _all_executed: set[int] = set()
+_all_edges: set[tuple[int, int]] = set()
 _binary_size: int = 0
 _code_base: int = 0
+_binary_path: Path | None = None
 
 
 def _find_data_addrs(emu: MiniOSEmulator):
@@ -47,10 +50,11 @@ def _find_data_addrs(emu: MiniOSEmulator):
 
 def _run(emu: MiniOSEmulator, parse_fname_bin, input_str: str) -> dict:
     """Run run_parse_filename, return parsed results."""
-    global _binary_size, _code_base
+    global _binary_size, _code_base, _binary_path
     emu.load(parse_fname_bin)
     _binary_size = emu.code_size
     _code_base = emu.code_base
+    _binary_path = parse_fname_bin
 
     # Write input string and set SI to point to it
     emu.write_string(STRING_AREA, input_str)
@@ -58,6 +62,7 @@ def _run(emu: MiniOSEmulator, parse_fname_bin, input_str: str) -> dict:
 
     emu.run()
     _all_executed.update(emu.coverage_in_binary)
+    _all_edges.update(emu.edges_in_binary)
 
     addrs = _find_data_addrs(emu)
     fname_bytes = emu.read_bytes(addrs["fname_buf"], 11)
@@ -152,4 +157,5 @@ def _register_coverage_after_all():
     yield
     if _binary_size > 0:
         in_binary = {a for a in _all_executed if _code_base <= a < _code_base + _binary_size}
-        register_coverage("run_parse_filename", _binary_size, len(in_binary))
+        register_coverage("run_parse_filename", _binary_size, len(in_binary),
+                          edges=_all_edges, binary_path=_binary_path)

@@ -1,8 +1,8 @@
 # Unit Testing — Design Document
 
-**Version:** 1.0  
-**Status:** Tier 1 implemented (v0.9.9); Tiers 2–3 proposed  
-**Prerequisite:** Python 3.9+, `pip install unicorn pytest pytest-html`
+**Version:** 1.1  
+**Status:** Tier 1 implemented (v0.9.9); branch coverage + trend tracking added  
+**Prerequisite:** Python 3.9+, `pip install -r tests/requirements.txt` (unicorn, pytest, capstone)
 
 ---
 
@@ -80,9 +80,15 @@ and memory state.
 4. **Assert** — The test reads registers and memory to verify the routine
    produced the expected output.
 
-5. **Coverage** — An instruction-level hook records every address executed.
-   After all tests complete, the coverage collector compares executed addresses
-   against the NASM listing file to produce line-level coverage.
+5. **Coverage** — An instruction-level hook records every address executed
+   and every (from → to) edge transition.  After all tests complete, the
+   coverage collector compares executed addresses against the binary size
+   for statement coverage, and uses Capstone disassembly to identify
+   conditional branches for branch coverage (taken vs. fall-through).
+
+6. **Trend Tracking** — Each CI run appends a record to `history.json`
+   (last 50 entries).  A Chart.js trend page (`trend.html`) is deployed
+   to GitHub Pages alongside the coverage dashboard.
 
 **Example test flow:**
 
@@ -141,18 +147,21 @@ via the QEMU monitor protocol (QMP), and assert on serial port output.
 tests/
 ├── conftest.py              # pytest fixtures, shared emulator setup
 ├── harness/
-│   ├── emulator.py          # MiniOSEmulator class (Unicorn wrapper)
+│   ├── emulator.py          # MiniOSEmulator class (Unicorn wrapper + edge tracking)
 │   ├── assembler.py         # NASM assembly helper (build test binaries)
-│   ├── coverage.py          # Coverage collector (instruction hooks + listing)
+│   ├── coverage.py          # Coverage report generator (stmt + branch + trend)
+│   ├── branch_coverage.py   # Capstone-based branch coverage analyzer
 │   └── constants.py         # Memory addresses mirroring memory.inc
 ├── stubs/
 │   ├── stub_parse_args.asm  # Harness: includes shell_parse_args.inc + hlt
 │   ├── stub_parse_fname.asm # Harness: includes run_parse_filename + hlt
-│   └── stub_strcmp.asm       # Harness: includes strcmp + hlt
+│   ├── stub_strcmp.asm       # Harness: includes strcmp + hlt
+│   └── stub_mm.asm          # Harness: MM allocator routines + hlt
 ├── test_parse_args.py       # Tests for shell_parse_args
 ├── test_parse_filename.py   # Tests for run_parse_filename
 ├── test_strcmp.py            # Tests for strcmp
-└── requirements.txt         # unicorn, pytest, pytest-html
+├── test_mm.py               # Tests for mm_alloc/free/avail/info
+└── requirements.txt         # unicorn, pytest, capstone
 ```
 
 ### 3.2 Test Harness Design

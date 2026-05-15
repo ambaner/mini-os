@@ -5,6 +5,7 @@ argc/argv table at 0x7F00.  See doc/COMMAND-LINE.md §4 for the spec.
 """
 
 import pytest
+from pathlib import Path
 from tests.harness.emulator import MiniOSEmulator
 from tests.harness.constants import (
     SHELL_ARGS_PTR, ARGV_ARGC, ARGV_PTRS, ARGV_MAX_ARGS, STRING_AREA,
@@ -14,16 +15,19 @@ from tests.conftest import register_coverage
 
 # Accumulate all executed addresses across tests for coverage
 _all_executed: set[int] = set()
+_all_edges: set[tuple[int, int]] = set()
 _binary_size: int = 0
 _code_base: int = 0
+_binary_path: Path | None = None
 
 
 def _run(emu: MiniOSEmulator, parse_args_bin, input_str: str | None):
     """Helper: set up memory, run shell_parse_args, track coverage."""
-    global _binary_size, _code_base
+    global _binary_size, _code_base, _binary_path
     emu.load(parse_args_bin)
     _binary_size = emu.code_size
     _code_base = emu.code_base
+    _binary_path = parse_args_bin
 
     if input_str is None:
         # NULL pointer case
@@ -34,6 +38,7 @@ def _run(emu: MiniOSEmulator, parse_args_bin, input_str: str | None):
 
     emu.run()
     _all_executed.update(emu.coverage_in_binary)
+    _all_edges.update(emu.edges_in_binary)
 
 
 def _get_argv(emu: MiniOSEmulator, index: int) -> str:
@@ -171,4 +176,5 @@ def _register_coverage_after_all():
     yield
     if _binary_size > 0:
         in_binary = {a for a in _all_executed if _code_base <= a < _code_base + _binary_size}
-        register_coverage("shell_parse_args", _binary_size, len(in_binary))
+        register_coverage("shell_parse_args", _binary_size, len(in_binary),
+                          edges=_all_edges, binary_path=_binary_path)

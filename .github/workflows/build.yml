@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main ]
 
+concurrency:
+  group: pages-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: windows-latest
@@ -208,6 +212,14 @@ jobs:
     - name: Install test dependencies
       run: pip install -r tests/requirements.txt
 
+    - name: Fetch coverage history
+      if: github.ref == 'refs/heads/main'
+      continue-on-error: true
+      run: |
+        mkdir -p coverage
+        curl -sSf "https://raw.githubusercontent.com/${{ github.repository }}/gh-pages/coverage/history.json" \
+          -o coverage/history.json 2>/dev/null || echo "[]" > coverage/history.json
+
     - name: Run unit tests
       run: python -m pytest tests/ -v --tb=short --junitxml=test-results.xml
 
@@ -220,12 +232,15 @@ jobs:
         import json
         with open('coverage/summary.json') as f:
             data = json.load(f)
-        print('| Routine | Coverage |')
-        print('|---------|----------|')
-        for name, r in sorted(data.get('routines', {}).items()):
-            print(f'| \`{name}\` | {r[\"coverage\"]:.0f}% |')
+        print(f'**Statement: {data[\"overall_coverage\"]:.0f}%** ({data[\"hit_addresses\"]}/{data[\"total_addresses\"]} addresses)')
+        print(f'| **Branch: {data.get(\"branch_coverage\", 0):.0f}%** ({data.get(\"branch_outcomes_covered\", 0)}/{data.get(\"branch_outcomes_total\", 0)} outcomes)')
         print()
-        print(f'**Overall: {data[\"overall_coverage\"]:.0f}%** ({data[\"hit_addresses\"]}/{data[\"total_addresses\"]} addresses)')
+        print('| Routine | Statement | Branch |')
+        print('|---------|-----------|--------|')
+        for name, r in sorted(data.get('routines', {}).items()):
+            br = r.get('branch_coverage')
+            br_str = f'{br:.0f}%' if br is not None else '—'
+            print(f'| \`{name}\` | {r[\"coverage\"]:.0f}% | {br_str} |')
         " >> $GITHUB_STEP_SUMMARY
         fi
 
