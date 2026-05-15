@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>mini-os Coverage Report</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+               max-width: 800px; margin: 40px auto; padding: 0 20px;
+               color: #24292e; background: #fff; }
+        h1 { border-bottom: 1px solid #e1e4e8; padding-bottom: 8px; }
+        .overall { font-size: 1.3em; margin: 20px 0; padding: 16px;
+                    background: #f6f8fa; border-radius: 6px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+        th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #e1e4e8; }
+        th { background: #f6f8fa; font-weight: 600; }
+        code { font-family: 'SFMono-Regular', Consolas, monospace; }
+        .footer { margin-top: 40px; color: #6a737d; font-size: 0.85em; }
+    </style>
+</head>
+<body>
+    <h1>mini-os Unit Test Coverage</h1>
+    <div class="overall">
+        Overall: <code>████░░░░░░</code> <strong>49%</strong>
+        (151/307 instruction addresses)
+    </div>
+    <table>
+        <tr><th>Routine</th><th>Total Addrs</th><th>Hit</th><th>Coverage</th></tr>
+        <tr>
+            <td>run_parse_filename</td>
+            <td>152</td>
+            <td>65</td>
+            <td><code>████░░░░░░</code> 43%</td>
+        </tr>
+        <tr>
+            <td>shell_parse_args</td>
+            <td>129</td>
+            <td>68</td>
+            <td><code>█████░░░░░</code> 53%</td>
+        </tr>
+        <tr>
+            <td>strcmp</td>
+            <td>26</td>
+            <td>18</td>
+            <td><code>██████░░░░</code> 69%</td>
+        </tr>
+
+    </table>
+    <p class="footer">
+        Generated 2026-05-15 19:36 UTC
+        · Tier 1 only (pure-logic unit tests via Unicorn Engine)
+        · See <a href="https://github.com/AmbaneP/mini-os/blob/main/doc/TESTING.md">TESTING.md</a>
+    </p>
+</body>
+</html>
