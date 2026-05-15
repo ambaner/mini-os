@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.9.9] - 2026-05-15
+
+### Added
+- **Unit test framework** — Python + Unicorn Engine testing infrastructure for
+  16-bit x86 assembly routines (no QEMU or hardware required):
+  - 37 tests across 3 routines (shell_parse_args, run_parse_filename, strcmp)
+  - Instruction-level coverage reporting (HTML dashboard + JSON + shields.io badge)
+  - CI/CD integration (new `test` job in build.yml, coverage deployed to GitHub Pages)
+  - See doc/TESTING.md for the 3-tier test strategy design
+- **doc/TESTING.md** — unit test framework design document covering the 3-tier
+  test strategy (Tier 1: pure logic with Unicorn; Tier 2: syscall hooks; Tier 3:
+  QEMU integration)
+
+---
+
 ## [0.9.8] - 2026-05-15
 
 ### Added
@@ -22,6 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   NUL-separated string storage
 - **Backward compatible** — `SYS_GET_ARGS` (AH=0x24) still returns the raw
   argument string unchanged
+- **doc/COMMAND-LINE.md** — 5-layer command-line expansion design document
 
 ### Changed
 - `SYSCALL_MAX` bumped from 0x24 to 0x26

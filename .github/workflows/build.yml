@@ -188,3 +188,55 @@ jobs:
           build/boot/mnmon.mnx
           build/boot/mini-os.vhd
         retention-days: 30
+
+  test:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Setup NASM
+      uses: ilammy/setup-nasm@v1
+
+    - name: Install test dependencies
+      run: pip install -r tests/requirements.txt
+
+    - name: Assemble test stubs & run unit tests
+      run: python -m pytest tests/ -v --tb=short
+
+    - name: Generate coverage summary
+      if: always()
+      run: |
+        if [ -f coverage/summary.json ]; then
+          python tests/harness/coverage.py --output coverage
+          cat coverage/summary.json
+        fi
+
+    - name: Write job summary
+      if: always()
+      run: |
+        if [ -f coverage/summary.json ]; then
+          python tests/harness/coverage.py --output coverage >> $GITHUB_STEP_SUMMARY
+        fi
+
+    - name: Upload coverage report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: coverage/
+        retention-days: 30
+
+    - name: Deploy coverage to GitHub Pages
+      if: github.ref == 'refs/heads/main' && success()
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./coverage

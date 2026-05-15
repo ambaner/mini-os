@@ -10,9 +10,18 @@
     4. Assembles debug variants: FSD, KERNELD, SHELLD (with -dDEBUG)
     5. Creates a partitioned raw disk image with all 7 MNFS files
     6. Wraps the raw image as a VHD
+    7. (Optional) Runs unit tests via pytest + Unicorn Engine
 
 .PARAMETER Clean
     Remove the build/ directory before building.
+
+.PARAMETER Test
+    Run unit tests after a successful build.  Requires Python 3.10+ and
+    the packages listed in tests/requirements.txt.
+    Tests run by default; use -NoTest to skip.
+
+.PARAMETER NoTest
+    Skip unit tests after building.
 
 .PARAMETER DiskSizeMB
     VHD disk size in megabytes (default: 16).
@@ -21,6 +30,8 @@
 [CmdletBinding()]
 param(
     [switch]$Clean,
+    [switch]$Test,
+    [switch]$NoTest,
     [int]$DiskSizeMB = 16
 )
 
@@ -208,3 +219,32 @@ Write-Host "  build.bat           — build the OS"
 Write-Host "  setup-vm.bat        — create/update the VM"
 Write-Host "  Start-VM 'mini-os'  — boot it"
 Write-Host ''
+
+# ---------- unit tests -------------------------------------------------------
+if (-not $NoTest) {
+    Write-Host ''
+    Write-Step '=== Running unit tests ==='
+
+    $Python = Get-Command python -ErrorAction SilentlyContinue
+    if (-not $Python) {
+        Write-Warning 'Python not found on PATH — skipping tests.'
+        Write-Warning 'Install from https://www.python.org/ and run: pip install -r tests/requirements.txt'
+    } else {
+        $ReqFile = Join-Path $Root 'tests' 'requirements.txt'
+        if (Test-Path $ReqFile) {
+            Write-Step 'Installing test dependencies...'
+            & $Python.Source -m pip install -q -r $ReqFile 2>&1 | Out-Null
+        }
+
+        $TestDir = Join-Path $Root 'tests'
+        & $Python.Source -m pytest $TestDir -v --tb=short
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error 'Unit tests FAILED.'
+            exit 1
+        }
+
+        Write-Host ''
+        Write-Step '=== All tests passed ==='
+        Write-Host ''
+    }
+}

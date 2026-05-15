@@ -7,14 +7,16 @@ architecture. The project is educational — designed so anyone can clone the re
 build a bootable disk image, and run it in a Hyper-V virtual machine with no prior
 OS-development experience.
 
-The current milestone is **M9: Program Loader** — the MBR chain-loads a
+The current milestone is **M11: Unit Test Framework** — the MBR chain-loads a
 minimal VBR, which finds and loads LOADER.SYS from the MNFS directory, LOADER
 enables A20 and presents a boot menu, the kernel installs INT 0x80 syscalls,
 loads FS.SYS (filesystem module with INT 0x81 API), loads MM.SYS (heap
 allocator with INT 0x82 API), and finally loads the interactive shell
 (SHELL.SYS) — all file locations discovered via directory lookup, no hardcoded
 disk offsets.  The shell can load and execute user programs (`.MNX` files) from
-disk into a 26 KB Transient Program Area.  Debug builds add serial logging,
+disk into a 26 KB Transient Program Area, with structured argc/argv parsing
+for command-line arguments.  A Python + Unicorn Engine test framework provides
+37 unit tests with coverage reporting.  Debug builds add serial logging,
 syscall tracing, user-mode debug syscalls, assertion macros, INT depth tracking,
 DAP hex dumps, and CPU fault handlers.  Fault handlers are present in both
 release and debug builds (PIC remapped to avoid IRQ/exception vector conflicts).
@@ -150,10 +152,13 @@ release and debug builds (PIC remapped to avoid IRQ/exception vector conflicts).
 | `0x0000:0x2800` – `0x0000:0x2FFF` | **MM.SYS** (2 KB max, loaded by kernel; memory manager INT 0x82) |
 | `0x0000:0x3000` – `0x0000:0x4FFF` | **SHELL.SYS** (8 KB max, loaded by kernel) |
 | `0x0000:0x5000` – `0x0000:0x6FFF` | **KERNEL.SYS** (8 KB max, 8 sectors used) |
+| `0x0000:0x7000` – `0x0000:0x7003` | Stack canary (debug builds only) |
 | `0x0000:0x7C00` – `0x0000:0x7FFF` | **VBR** (2 sectors, boot-time only) |
 | `0x0000:0x7BFE` ↓ | Stack (grows downward from 0x7C00) |
+| `0x0000:0x7F00` – `0x0000:0x7FFB` | **ARGV table** — argc (1 byte) + 16 word pointers + NUL-separated arg strings |
 | `0x0000:0x7E00` – `0x0000:0x9DFF` | VBR load buffer (MBR uses this temporarily) |
 | `0x0000:0x8000` – `0x0000:0xF7FF` | **HEAP** (30 KB, managed by MM.SYS via INT 0x82) |
+| `0x0000:0x9000` – `0x0000:0xFFFF` | **TPA** (Transient Program Area, 26 KB — user `.MNX` programs loaded here) |
 
 #### Boot Info Block (BIB) — 0x0600
 
@@ -337,14 +342,16 @@ Sector 2048             → Partition start: VBR (2 sectors)
 Sector 2050             → MNFS directory table (1 sector, up to 15 entries)
 Sector 2051+            → Files packed contiguously:
                             LOADER.SYS  (3 sectors)
-                            FS.SYS      (2 sectors)
+                            FS.SYS      (3 sectors)
                             KERNEL.SYS  (8 sectors)
-                            SHELL.SYS   (14 sectors)
+                            SHELL.SYS   (16 sectors)
                             MM.SYS      (1 sector)
-                            FSD.SYS     (4 sectors)
-                            KERNELD.SYS (12 sectors)
-                            SHELLD.SYS  (14 sectors)
+                            FSD.SYS     (5 sectors)
+                            KERNELD.SYS (14 sectors)
+                            SHELLD.SYS  (16 sectors)
                             MMD.SYS     (2 sectors)
+                            HELLO.MNX   (1 sector)
+                            MNMON.MNX   (4 sectors)
 Remaining sectors       → Zeroed (available for future files)
 ```
 
@@ -376,7 +383,8 @@ The shell is a simple read-eval-print loop:
 3. Compare the input against known command strings via `strcmp`
 4. If recognized, dispatch to the matching handler
 5. If unrecognized, attempt implicit program execution (load `.MNX` from disk)
-6. After the command completes, return to step 1
+6. Before launching a program, parse the command line into argc/argv (see §3.9)
+7. After the command completes, return to step 1
 
 ### 3.2 Commands
 
@@ -474,11 +482,11 @@ but prints a warning.
 Displays static version and build information:
 
 ```
-  MNOS v0.6.0
+  MNOS v0.9.9
   Arch:      x86 real mode (16-bit)
   Assembler: NASM
   Platform:  Hyper-V Gen 1
-  Boot:      MBR -> VBR -> LOADER -> KERNEL -> FS -> SHELL
+  Boot:      MBR -> VBR -> LOADER -> KERNEL -> FS -> MM -> SHELL
   Disk:      16 MB fixed VHD
   Source:    github.com/ambaner/mini-os
 ```
@@ -492,6 +500,7 @@ These subroutines live in SHELL.SYS and are available to all commands:
 | `check_a20` | Test A20 status via wrap-around; ZF=0 if enabled, ZF=1 if disabled |
 | `readline` | Read line of input into buffer (backspace, auto-lowercase) |
 | `strcmp` | Compare two NUL-terminated strings, set ZF if equal |
+| `shell_parse_args` | Parse raw command line into argc/argv table at 0x7F00 |
 | `puts` | Print NUL-terminated string via INT 10h AH=0Eh |
 | `putc` | Print single character |
 | `puthex8` | Print AL as two hex digits |
@@ -499,11 +508,94 @@ These subroutines live in SHELL.SYS and are available to all commands:
 | `print_dec16` | Print AX as unsigned decimal |
 | `wait_key` | Print prompt, wait for keypress, clear screen |
 
+### 3.9 Command-Line Parsing (argc/argv)
+
+Before launching a user program, the shell parses the raw command line into
+structured arguments via `shell_parse_args` (in `shell_parse_args.inc`).  The
+parsed data is stored in the **ARGV table** at 0x7F00:
+
+| Offset | Size | Field |
+|--------|------|-------|
+| 0x7F00 | 1 | `argc` — argument count (0–15) |
+| 0x7F02 | 32 | Pointer table — 16 word pointers to NUL-terminated strings |
+| 0x7F22 | 218 | String storage — NUL-separated argument strings |
+
+**Parsing rules:**
+- Spaces and tabs are delimiters
+- Double-quoted strings are treated as a single argument (quotes stripped)
+- Maximum 15 arguments; excess arguments are silently dropped
+- The program name is always `argv[0]`
+
+Programs access their arguments via two syscalls:
+- `SYS_GET_ARGC` (AH=0x25, INT 0x80) — returns count in CL
+- `SYS_GET_ARGV` (AH=0x26, INT 0x80) — index in CL → SI=string, CX=length; CF set if out of bounds
+
+The raw (unparsed) argument string remains available via `SYS_GET_ARGS` (AH=0x24)
+for backward compatibility.
+
+> **📄 Full design**: See [COMMAND-LINE.md](COMMAND-LINE.md) for the 5-layer
+> command-line expansion roadmap (wildcards, environment variables, pipes, I/O
+> redirection).
+
+### 3.10 User Programs
+
+User programs are `.MNX` executables loaded into the Transient Program Area
+(TPA) at 0x9000 by the shell.  They use the MNEX binary format with an `'MNEX'`
+header.  Two example programs ship with mini-os:
+
+| Program | Description |
+|---------|-------------|
+| `HELLO.MNX` | Hello World — prints a message and exits (1 sector) |
+| `MNMON.MNX` | Machine monitor — WinDbg-style memory inspector with 11 commands: `db`, `dw`, `eb`, `ew`, `g`, `di`, `bib`, `ivt`, `mcb`, `?` (4 sectors) |
+
+> **📄 Full specification**: See [PROGRAM-LOADER.md](PROGRAM-LOADER.md) for
+> the program loading mechanism, validation layers, and TPA layout.
+>
+> **📄 MNMON reference**: See [MNMON.md](MNMON.md) for the machine monitor
+> command reference and usage examples.
+
 ---
 
-## 4. Disk Image: VHD Format
+## 4. Testing
 
-### 4.1 Why VHD?
+> **📄 Full specification**: See [TESTING.md](TESTING.md) for the complete
+> 3-tier test strategy, test matrix, and maintenance guide.
+
+Mini-os uses a **Python + Unicorn Engine** unit test framework that emulates
+16-bit x86 routines without QEMU or hardware.  Tests run automatically as part
+of every build (`build.bat` / `build.ps1`).
+
+### 4.1 Test Architecture (3 Tiers)
+
+| Tier | Scope | Engine | Status |
+|------|-------|--------|--------|
+| **Tier 1** | Pure logic (no INT calls) | Unicorn Engine | ✅ Implemented (37 tests) |
+| **Tier 2** | Syscall-level (INT hooks) | Unicorn + hooks | 🔮 Planned |
+| **Tier 3** | Full system (boot-to-shell) | QEMU headless | 🔮 Planned |
+
+### 4.2 Current Test Coverage
+
+| Module | Tests | What's tested |
+|--------|-------|---------------|
+| `shell_parse_args` | 15 | Null/empty input, single/multi args, spaces, tabs, quoted strings, max overflow |
+| `run_parse_filename` | 9 | Simple names, extensions, case conversion, argument extraction, truncation |
+| `strcmp` | 11 | Equal, different, prefix mismatch, empty strings, case sensitivity, long strings |
+
+### 4.3 Coverage Reporting
+
+Instruction-level coverage is tracked via Unicorn's code hooks.  Every build
+generates:
+- `coverage/index.html` — visual dashboard with per-routine bar charts
+- `coverage/summary.json` — machine-readable coverage data
+- `coverage/badge.json` — shields.io endpoint for README badges
+
+In CI/CD, coverage is deployed to GitHub Pages after each push to `main`.
+
+---
+
+## 5. Disk Image: VHD Format
+
+### 5.1 Why VHD?
 
 Hyper-V natively supports VHD (Virtual Hard Disk) files. The **fixed-size VHD** format
 is the simplest variant: raw disk data followed by a 512-byte footer. No dynamic

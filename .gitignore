@@ -13,3 +13,8 @@ Thumbs.db
 # Copilot session context
 .copilot-context.md
 
+# Test artifacts (assembled stubs, coverage reports)
+tests/bin/
+coverage/
+.pytest_cache/
+__pycache__/

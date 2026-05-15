@@ -1,7 +1,7 @@
 # mini-os
 
 A minimalistic operating system built from scratch in x86 assembly — currently
-at **v0.9.8**.  Features a multi-stage boot loader, a microkernel-style
+at **v0.9.9**.Features a multi-stage boot loader, a microkernel-style
 architecture with separate modules for filesystem and memory management, and an
 interactive shell that can load and run user programs.  Targets Hyper-V Gen 1
 VMs with a unified VHD containing both Release and Debug configurations.
@@ -16,11 +16,14 @@ VMs with a unified VHD containing both Release and Debug configurations.
 |------|---------|---------|
 | **NASM** | x86 assembler | [nasm.us](https://www.nasm.us/) — or let `build.bat` download it automatically |
 | **PowerShell 7+** | Build system & VHD creation | [aka.ms/powershell](https://aka.ms/powershell) |
+| **Python 3.10+** | Unit tests (Unicorn Engine) | [python.org](https://www.python.org/) — deps installed automatically by build |
 
 ## Quick Start
 
 ```cmd
-build.bat
+build.bat           # build + run unit tests
+build.bat notest    # build only (skip tests)
+build.bat clean     # clean build + tests
 ```
 
 The build script will:
@@ -133,7 +136,8 @@ mini-os/
 │   ├── MNEX-BINARY-FORMAT.md # Custom binary format spec, toolchain, build pipeline
 │   ├── MNMON.md              # Machine monitor design & command reference
 │   ├── PROGRAM-LOADER.md     # Program loader design — implicit execution, TPA, .MNX format
-│   └── SYSTEM-CALLS.md       # User↔kernel boundary, IVT/IDT/SYSCALL mechanisms
+│   ├── SYSTEM-CALLS.md       # User↔kernel boundary, IVT/IDT/SYSCALL mechanisms
+│   └── TESTING.md            # Unit test framework design (3-tier strategy)
 ├── src/
 │   ├── include/               # Shared constants & subroutines (%include)
 │   │   ├── bib.inc            # Boot Info Block field addresses
@@ -202,12 +206,46 @@ mini-os/
 ├── build.bat                  # Build entry point
 ├── read-serial.bat            # Read serial debug output from VM
 ├── setup-vm.bat               # Hyper-V VM setup entry point
+├── tests/                     # Unit test suite (Python + Unicorn Engine)
+│   ├── conftest.py            # pytest fixtures & coverage registration
+│   ├── requirements.txt       # Python deps (unicorn, pytest, pytest-html)
+│   ├── harness/
+│   │   ├── assembler.py       # NASM stub assembly helper
+│   │   ├── constants.py       # Memory addresses mirroring memory.inc
+│   │   ├── coverage.py        # Coverage collector & HTML/JSON reporter
+│   │   └── emulator.py        # MiniOSEmulator (Unicorn wrapper)
+│   ├── stubs/                 # Minimal NASM harnesses for routines under test
+│   │   ├── stub_parse_args.asm
+│   │   ├── stub_parse_fname.asm
+│   │   └── stub_strcmp.asm
+│   ├── test_parse_args.py     # 15 tests for shell_parse_args
+│   ├── test_parse_filename.py # 9 tests for run_parse_filename
+│   └── test_strcmp.py          # 11 tests for strcmp
 ├── CHANGELOG.md
 ├── CODE_OF_CONDUCT.md
 ├── CONTRIBUTING.md
 ├── LICENSE
 └── README.md
 ```
+
+## Testing
+
+Unit tests use **Python + Unicorn Engine** to emulate 16-bit x86 routines without
+QEMU or hardware. See **[doc/TESTING.md](doc/TESTING.md)** for the full test strategy.
+
+```powershell
+# Install dependencies (once)
+pip install -r tests/requirements.txt
+
+# Run all tests
+python -m pytest tests/ -v
+
+# Run with coverage report (generates coverage/index.html)
+python -m pytest tests/ -v    # coverage is auto-generated on session finish
+```
+
+**37 tests** across 3 routines: `shell_parse_args` (15), `run_parse_filename` (9),
+`strcmp` (11). Tests also run automatically in CI via GitHub Actions.
 
 ## Design & Architecture
 
@@ -288,6 +326,8 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.9.5` | **File extensions** | System binaries renamed `.BIN` → `.SYS` (kernel-loaded, resident); `.MNX` convention for future user-mode executables (shell-loaded, transient) |
 | `v0.9.6` | **Program Loader + Debug Diagnostics** | Implicit program execution (type `hello` to run HELLO.MNX); FS_FIND_BASE syscall; INT depth tracking; DAP hex dump; EDI-clobbers-DI bug fix |
 | `v0.9.7` | **Machine Monitor (mnmon)** | MNMON.MNX — WinDbg-style memory monitor (db/dw/eb/ew/g); standalone user program; proves interactive program loading |
+| `v0.9.8` | **Parsed Arguments (argc/argv)** | Layer 2 command-line parsing; SYS_GET_ARGC/SYS_GET_ARGV syscalls; double-quote support; max 15 args; doc/COMMAND-LINE.md |
+| `v0.9.9` | **Unit Test Framework** | Python + Unicorn Engine test harness; 37 tests across 3 routines; coverage reporting to GitHub Pages; CI/CD test job; doc/TESTING.md |
 
 ```cmd
 git checkout v0.1.0      # see the project at any prior milestone
