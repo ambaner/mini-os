@@ -32,11 +32,12 @@ jobs:
         $shl = "build\boot\shell.sys"
         $mm  = "build\boot\mm.sys"
         $hlo = "build\boot\hello.mnx"
+        $mon = "build\boot\mnmon.mnx"
         $img = "build\boot\mini-os.img"
         $vhd = "build\boot\mini-os.vhd"
 
         # Check all files exist
-        foreach ($f in @($mbr, $vbr, $ldr, $fsm, $krn, $shl, $mm, $hlo, $img, $vhd)) {
+        foreach ($f in @($mbr, $vbr, $ldr, $fsm, $krn, $shl, $mm, $hlo, $mon, $img, $vhd)) {
             if (-not (Test-Path $f)) { throw "$f not found" }
         }
 
@@ -135,6 +136,16 @@ jobs:
         $hloText = [System.Text.Encoding]::ASCII.GetString($hloBytes)
         if ($hloText -notmatch 'Hello') { throw "HELLO.MNX does not contain 'Hello' string" }
 
+        # MNMON.MNX: multiple of 512 bytes + MNEX magic
+        $monBytes = [System.IO.File]::ReadAllBytes($mon)
+        if (($monBytes.Length % 512) -ne 0) { throw "mnmon.mnx is $($monBytes.Length) bytes (not a multiple of 512)" }
+        $monMagic = [System.Text.Encoding]::ASCII.GetString($monBytes, 0, 4)
+        if ($monMagic -ne 'MNEX') { throw "MNMON magic is '$monMagic' (expected 'MNEX')" }
+        $monSectors = [BitConverter]::ToUInt16($monBytes, 4)
+        if ($monSectors -ne ($monBytes.Length / 512)) {
+            throw "MNMON binary is $($monBytes.Length / 512) sectors but header declares $monSectors"
+        }
+
         # Disk image: partition table present
         $imgBytes = [System.IO.File]::ReadAllBytes($img)
         if ($imgBytes[0x1BE] -ne 0x80) { throw "Partition 1 not marked active in disk image" }
@@ -157,6 +168,7 @@ jobs:
         Write-Host "  shell.sys    : $($shlBytes.Length) bytes ($shlSectors sectors), magic MNEX"
         Write-Host "  mm.sys       : $($mmBytes.Length) bytes ($mmSectors sectors), magic MNMM"
         Write-Host "  hello.mnx    : $($hloBytes.Length) bytes ($hloSectors sectors), magic MNEX"
+        Write-Host "  mnmon.mnx    : $($monBytes.Length) bytes ($monSectors sectors), magic MNEX"
         Write-Host "  mini-os.img  : $($imgBytes.Length) bytes, partition table OK"
         Write-Host "  mini-os.vhd  : $($vhdBytes.Length) bytes, VHD footer OK"
 
@@ -173,5 +185,6 @@ jobs:
           build/boot/shell.sys
           build/boot/mm.sys
           build/boot/hello.mnx
+          build/boot/mnmon.mnx
           build/boot/mini-os.vhd
         retention-days: 30

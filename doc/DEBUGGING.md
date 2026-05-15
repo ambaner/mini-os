@@ -41,7 +41,7 @@ document designs seven facilities for mini-os, ordered by impact.
 │ § 4b User-Mode Debug │ SYS_DBG_PRINT/HEX16/REGS with tags     │ ✅ v0.7.1     │
 │ § 5  Assert Macros   │ Compile-time condition checks           │ ✅ v0.7.2     │
 │ § 6  Fault Handlers  │ Trap CPU exceptions with state dump     │ ✅ v0.7.4     │
-│ § 7  Machine Monitor │ Wozmon-style memory examine/deposit/run │ 📋 Future     │
+│ § 7  Machine Monitor │ WinDbg-style memory monitor (MNMON.MNX)  │ ✅ v0.9.7     │
 │ § 8  Debug Build Mode│ %ifdef DEBUG conditional assembly       │ ✅ v0.7.0     │
 │ § 9  Stack Canary    │ Corruption sentinel at stack floor      │ ✅ v0.8.1     │
 └──────────────────────┴──────────────────────────────────────────┴───────────────┘
@@ -1204,7 +1204,7 @@ handler, the system would silently loop on the faulting instruction forever.
 
 ---
 
-## 7. Machine Monitor (`mnmon` Command) *(not yet implemented)*
+## 7. Machine Monitor (`mnmon`) *(implemented as MNMON.MNX — see [doc/MNMON.md](MNMON.md))*
 
 ### 7.1 Heritage: The Woz Monitor
 

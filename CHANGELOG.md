@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.9.7] - 2026-05-15
+
+### Added
+- **MNMON.MNX** — interactive machine monitor (WinDbg-style commands):
+  `db` (display bytes with ASCII), `dw` (display words), `eb` (enter bytes),
+  `ew` (enter words), `g` (call address).  Standalone user program (3 sectors).
+- **doc/MNMON.md** — full design specification for the monitor
+
+---
+
 ## [0.9.6] - 2026-05-15
 
 ### Added

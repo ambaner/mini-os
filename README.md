@@ -159,7 +159,8 @@ mini-os/
 │   ├── fs/
 │   │   └── fs.asm             # Filesystem module — INT 0x81 API, MNFS directory cache
 │   ├── programs/
-│   │   └── hello.asm          # HELLO.MNX — first user-mode demo program
+│   │   ├── hello.asm          # HELLO.MNX — first user-mode demo program
+│   │   └── mnmon.asm          # MNMON.MNX — interactive machine monitor (WinDbg-style)
 │   └── shell/
 │       ├── shell.asm          # Shell entry point — init, command loop, dispatch
 │       ├── shell_cmd_simple.inc   # Simple commands (ver, help, cls, reboot)
@@ -187,6 +188,7 @@ mini-os/
 │       ├── shell.sys          # SHELL — release (16 sectors)
 │       ├── mm.sys             # MM — release (1 sector)
 │       ├── hello.mnx          # HELLO — user program (1 sector)
+│       ├── mnmon.mnx          # MNMON — machine monitor (3 sectors)
 │       ├── fsd.sys            # FS — debug (5 sectors)
 │       ├── kerneld.sys        # KERNEL — debug (14 sectors)
 │       ├── shelld.sys         # SHELL — debug (16 sectors)
@@ -248,6 +250,9 @@ Additional deep-dive documents:
   execution from the shell prompt, FS_FIND_BASE syscall, TPA memory layout,
   four-layer validation, SYS_EXIT/SYS_GET_ARGS syscalls, and MNEX format loading.
 
+- **[doc/MNMON.md](doc/MNMON.md)** — Machine monitor design: WinDbg-style commands
+  (db/dw/eb/ew/g), Wozmon heritage, implementation as standalone .MNX program.
+
 ## Version History
 
 Each version is a tagged release you can checkout to see the project at that stage.
@@ -278,6 +283,7 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.9.2` | **MCB owner tags** | Flags byte bits 1-3 carry 3-bit owner ID; MEM_ALLOC DL=owner; shell `mem` block detail walk with owner names; debug trace logs owner |
 | `v0.9.5` | **File extensions** | System binaries renamed `.BIN` → `.SYS` (kernel-loaded, resident); `.MNX` convention for future user-mode executables (shell-loaded, transient) |
 | `v0.9.6` | **Program Loader + Debug Diagnostics** | Implicit program execution (type `hello` to run HELLO.MNX); FS_FIND_BASE syscall; INT depth tracking; DAP hex dump; EDI-clobbers-DI bug fix |
+| `v0.9.7` | **Machine Monitor (mnmon)** | MNMON.MNX — WinDbg-style memory monitor (db/dw/eb/ew/g); standalone user program; proves interactive program loading |
 
 ```cmd
 git checkout v0.1.0      # see the project at any prior milestone
