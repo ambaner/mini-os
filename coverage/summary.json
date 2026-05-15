@@ -1,9 +1,14 @@
 {
-  "timestamp": "2026-05-15T20:08:38.373858+00:00",
-  "overall_coverage": 49.2,
-  "total_addresses": 307,
-  "hit_addresses": 151,
+  "timestamp": "2026-05-15T20:16:31.953524+00:00",
+  "overall_coverage": 43.9,
+  "total_addresses": 670,
+  "hit_addresses": 294,
   "routines": {
+    "mm_allocator": {
+      "coverage": 39.4,
+      "total": 363,
+      "hit": 143
+    },
     "shell_parse_args": {
       "coverage": 52.7,
       "total": 129,
