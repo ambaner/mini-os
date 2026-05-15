@@ -208,30 +208,46 @@ jobs:
     - name: Install test dependencies
       run: pip install -r tests/requirements.txt
 
-    - name: Assemble test stubs & run unit tests
-      run: python -m pytest tests/ -v --tb=short
+    - name: Run unit tests
+      run: python -m pytest tests/ -v --tb=short --junitxml=test-results.xml
 
-    - name: Generate coverage summary
+    - name: Generate coverage report
       if: always()
       run: |
-        if [ -f coverage/summary.json ]; then
-          python tests/harness/coverage.py --output coverage
-          cat coverage/summary.json
-        fi
+        python -c "
+        import sys; sys.path.insert(0, '.')
+        from tests.harness.coverage import CoverageCollector
+        collector = CoverageCollector()
+        collector.generate_report('coverage')
+        collector.print_summary()
+        "
 
     - name: Write job summary
       if: always()
       run: |
         if [ -f coverage/summary.json ]; then
-          python tests/harness/coverage.py --output coverage >> $GITHUB_STEP_SUMMARY
+          echo '## Unit Test Coverage' >> $GITHUB_STEP_SUMMARY
+          python -c "
+        import json
+        with open('coverage/summary.json') as f:
+            data = json.load(f)
+        print('| Module | Coverage |')
+        print('|--------|----------|')
+        for mod in data.get('modules', []):
+            print(f'| \`{mod[\"name\"]}\` | {mod[\"coverage_pct\"]:.0f}% |')
+        print(f'')
+        print(f'**Overall: {data[\"overall_coverage_pct\"]:.0f}%** ({data[\"total_tests\"]} tests)')
+        " >> $GITHUB_STEP_SUMMARY
         fi
 
-    - name: Upload coverage report
+    - name: Upload test results
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: coverage-report
-        path: coverage/
+        name: test-results
+        path: |
+          test-results.xml
+          coverage/
         retention-days: 30
 
     - name: Deploy coverage to GitHub Pages
@@ -240,3 +256,4 @@ jobs:
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         publish_dir: ./coverage
+        destination_dir: coverage
