@@ -130,22 +130,24 @@ mini-os/
 │   ├── MEMORY-MANAGER.md     # Memory manager design & implementation (MM.SYS)
 │   ├── CPU-MODES-AND-TRANSITIONS.md  # 16→32→64-bit journey, BIOS vs UEFI
 │   ├── MNEX-BINARY-FORMAT.md # Custom binary format spec, toolchain, build pipeline
-│   ├── PROGRAM-LOADER.md    # Program loader design — implicit execution, TPA, .MNX format
+│   ├── MNMON.md              # Machine monitor design & command reference
+│   ├── PROGRAM-LOADER.md     # Program loader design — implicit execution, TPA, .MNX format
 │   └── SYSTEM-CALLS.md       # User↔kernel boundary, IVT/IDT/SYSCALL mechanisms
 ├── src/
 │   ├── include/               # Shared constants & subroutines (%include)
 │   │   ├── bib.inc            # Boot Info Block field addresses
-│   │   ├── memory.inc         # Component load addresses, stack canary, MM constants
-│   │   ├── mnfs.inc           # MNFS filesystem constants & INT 0x81 numbers
-│   │   ├── syscalls.inc       # INT 0x80 syscall function numbers
+│   │   ├── boot_msg.inc       # Boot progress messages ([  OK  ] / [FAIL])
+│   │   ├── debug.inc          # DBG/ASSERT macros (debug build only)
 │   │   ├── find_file.inc      # Bootstrap MNFS directory lookup subroutine
 │   │   ├── load_binary.inc    # Shared MNEX binary loader subroutine
-│   │   ├── boot_msg.inc       # Boot progress messages ([  OK  ] / [FAIL])
+│   │   ├── memory.inc         # Component load addresses, stack canary, MM constants
+│   │   ├── mnfs.inc           # MNFS filesystem constants & INT 0x81 numbers
 │   │   ├── serial.inc         # COM1 serial I/O (debug build only)
-│   │   └── debug.inc          # DBG/ASSERT macros (debug build only)
+│   │   ├── syscalls.inc       # INT 0x80 syscall function numbers
+│   │   └── version.inc        # Single source of truth for OS version
 │   ├── boot/
 │   │   ├── mbr.asm            # MBR — partition table scan + VBR chain-load
-│   │   └── vbr.asm            # VBR  finds LOADER.SYS via MNFS directory
+│   │   └── vbr.asm            # VBR — finds LOADER.SYS via MNFS directory
 │   ├── loader/
 │   │   └── loader.asm         # Stage-2 loader — A20 gate, boot menu, loads KERNEL
 │   ├── kernel/
@@ -171,7 +173,7 @@ mini-os/
 │       ├── shell_readline.inc     # Input handling + utility subroutines
 │       └── shell_data.inc         # String constants + runtime data buffers
 ├── tools/
-│   ├── build.ps1              # Build logic — assembles 10 binaries, creates VHD
+│   ├── build.ps1              # Build logic — assembles all binaries, creates VHD
 │   ├── create-disk.ps1        # Partitioned raw disk image creator
 │   ├── create-vhd.bat         # VHD tool — batch wrapper
 │   ├── create-vhd.ps1         # Raw image → VHD converter (pure PowerShell)
@@ -188,7 +190,7 @@ mini-os/
 │       ├── shell.sys          # SHELL — release (16 sectors)
 │       ├── mm.sys             # MM — release (1 sector)
 │       ├── hello.mnx          # HELLO — user program (1 sector)
-│       ├── mnmon.mnx          # MNMON — machine monitor (3 sectors)
+│       ├── mnmon.mnx          # MNMON — machine monitor (4 sectors)
 │       ├── fsd.sys            # FS — debug (5 sectors)
 │       ├── kerneld.sys        # KERNEL — debug (14 sectors)
 │       ├── shelld.sys         # SHELL — debug (16 sectors)
