@@ -569,7 +569,7 @@ of every build (`build.bat` / `build.ps1`).
 
 | Tier | Scope | Engine | Status |
 |------|-------|--------|--------|
-| **Tier 1** | Pure logic (no INT calls) | Unicorn Engine | ✅ Implemented (37 tests) |
+| **Tier 1** | Pure logic (no INT calls) | Unicorn Engine | ✅ Implemented (64 tests) |
 | **Tier 2** | Syscall-level (INT hooks) | Unicorn + hooks | 🔮 Planned |
 | **Tier 3** | Full system (boot-to-shell) | QEMU headless | 🔮 Planned |
 

@@ -11,10 +11,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - **Unit test framework** — Python + Unicorn Engine testing infrastructure for
   16-bit x86 assembly routines (no QEMU or hardware required):
-  - 37 tests across 3 routines (shell_parse_args, run_parse_filename, strcmp)
+  - 64 tests across 4 modules (shell_parse_args, run_parse_filename, strcmp, mm_allocator)
   - Instruction-level coverage reporting (HTML dashboard + JSON + shields.io badge)
   - CI/CD integration (new `test` job in build.yml, coverage deployed to GitHub Pages)
   - See doc/TESTING.md for the 3-tier test strategy design
+- **MM allocator unit tests** — 27 tests covering mm_alloc (first-fit, splits,
+  word alignment, OOM), mm_free (validation, forward coalescing), mm_avail
+  (fragmentation reporting), and mm_info (block counting)
 - **doc/TESTING.md** — unit test framework design document covering the 3-tier
   test strategy (Tier 1: pure logic with Unicorn; Tier 2: syscall hooks; Tier 3:
   QEMU integration)

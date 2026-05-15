@@ -61,6 +61,10 @@ and memory state.
 | `shell_parse_args` | `shell_parse_args.inc` | Tokenize args into argc/argv table |
 | `run_parse_filename` | `shell_cmd_run.inc` | Parse "filename.ext args" into 8.3 + args ptr |
 | `strcmp` | `shell_readline.inc` | Compare two NUL-terminated strings |
+| `mm_alloc` | `mm.asm` | First-fit heap allocation with block splitting |
+| `mm_free` | `mm.asm` | Free block + forward coalescing |
+| `mm_avail` | `mm.asm` | Report largest and total free memory |
+| `mm_info` | `mm.asm` | Report total/used/free/block-count statistics |
 
 **How it works:**
 
