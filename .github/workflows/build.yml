@@ -211,17 +211,6 @@ jobs:
     - name: Run unit tests
       run: python -m pytest tests/ -v --tb=short --junitxml=test-results.xml
 
-    - name: Generate coverage report
-      if: always()
-      run: |
-        python -c "
-        import sys; sys.path.insert(0, '.')
-        from tests.harness.coverage import CoverageCollector
-        collector = CoverageCollector()
-        collector.generate_report('coverage')
-        collector.print_summary()
-        "
-
     - name: Write job summary
       if: always()
       run: |
@@ -231,12 +220,12 @@ jobs:
         import json
         with open('coverage/summary.json') as f:
             data = json.load(f)
-        print('| Module | Coverage |')
-        print('|--------|----------|')
-        for mod in data.get('modules', []):
-            print(f'| \`{mod[\"name\"]}\` | {mod[\"coverage_pct\"]:.0f}% |')
-        print(f'')
-        print(f'**Overall: {data[\"overall_coverage_pct\"]:.0f}%** ({data[\"total_tests\"]} tests)')
+        print('| Routine | Coverage |')
+        print('|---------|----------|')
+        for name, r in sorted(data.get('routines', {}).items()):
+            print(f'| \`{name}\` | {r[\"coverage\"]:.0f}% |')
+        print()
+        print(f'**Overall: {data[\"overall_coverage\"]:.0f}%** ({data[\"hit_addresses\"]}/{data[\"total_addresses\"]} addresses)')
         " >> $GITHUB_STEP_SUMMARY
         fi
 
