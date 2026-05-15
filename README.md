@@ -1,7 +1,7 @@
 # mini-os
 
 A minimalistic operating system built from scratch in x86 assembly — currently
-at **v0.9.6**.  Features a multi-stage boot loader, a microkernel-style
+at **v0.9.8**.  Features a multi-stage boot loader, a microkernel-style
 architecture with separate modules for filesystem and memory management, and an
 interactive shell that can load and run user programs.  Targets Hyper-V Gen 1
 VMs with a unified VHD containing both Release and Debug configurations.
@@ -86,7 +86,7 @@ VHD — no need to rebuild or swap images.
 After the boot chain completes, you'll see the shell:
 
 ```
-  MNOS v0.9.6 [Release]
+  MNOS v0.9.8 [Release]
 
 mnos:\>
 ```
@@ -128,6 +128,7 @@ mini-os/
 │   ├── BOOT-LAYOUT-RATIONALE.md  # Boot chain rationale (DOS/Windows/Linux comparisons)
 │   ├── MEMORY-LAYOUT.md      # Memory map, stack analysis, protected-mode roadmap
 │   ├── MEMORY-MANAGER.md     # Memory manager design & implementation (MM.SYS)
+│   ├── COMMAND-LINE.md       # Command-line expansion system (5-layer design)
 │   ├── CPU-MODES-AND-TRANSITIONS.md  # 16→32→64-bit journey, BIOS vs UEFI
 │   ├── MNEX-BINARY-FORMAT.md # Custom binary format spec, toolchain, build pipeline
 │   ├── MNMON.md              # Machine monitor design & command reference
@@ -152,7 +153,7 @@ mini-os/
 │   │   └── loader.asm         # Stage-2 loader — A20 gate, boot menu, loads KERNEL
 │   ├── kernel/
 │   │   ├── kernel.asm         # 16-bit kernel — INT 0x80 syscalls, loads FS + MM + SHELL
-│   │   ├── kernel_syscall.inc # Syscall dispatcher + 27 handlers (jump table)
+│   │   ├── kernel_syscall.inc # Syscall dispatcher + 29 handlers (jump table)
 │   │   ├── kernel_data.inc    # Kernel string constants, filenames, DAP
 │   │   ├── kernel_fault.inc   # CPU exception fault handlers + PIC remap
 │   │   └── kernel_stack.inc   # Stack canary (debug-only overflow detection)
@@ -170,6 +171,7 @@ mini-os/
 │       ├── shell_cmd_mem.inc      # mem command (memory diagnostics)
 │       ├── shell_cmd_run.inc      # Implicit program execution (loader + validation)
 │       ├── shell_cmd_sysinfo.inc  # sysinfo command (5-page hardware info)
+│       ├── shell_parse_args.inc   # Argument tokenizer (Layer 2: argc/argv)
 │       ├── shell_readline.inc     # Input handling + utility subroutines
 │       └── shell_data.inc         # String constants + runtime data buffers
 ├── tools/

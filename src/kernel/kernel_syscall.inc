@@ -161,6 +161,8 @@ syscall_handler:
 .sn_22: db 'DBG_REGS', 0
 .sn_23: db 'EXIT', 0
 .sn_24: db 'GET_ARGS', 0
+.sn_25: db 'GET_ARGC', 0
+.sn_26: db 'GET_ARGV', 0
 
 ; Name pointer table (indexed by AH, 0x00–0x1B)
 .sc_name_table:
@@ -201,9 +203,11 @@ syscall_handler:
     dw .sn_22       ; 0x22
     dw .sn_23       ; 0x23
     dw .sn_24       ; 0x24
+    dw .sn_25       ; 0x25
+    dw .sn_26       ; 0x26
 %endif
 
-; --- Syscall jump table (35 entries: 0x00–0x22, gap 0x1C–0x1F reserved) ------
+; --- Syscall jump table (39 entries: 0x00–0x26, gap 0x1C–0x1F reserved) ------
 .sc_table:
     dw .sc_unknown          ; 0x00 — unused
     dw .fn_print_string     ; 0x01 — SYS_PRINT_STRING
@@ -242,6 +246,8 @@ syscall_handler:
     dw .fn_dbg_regs         ; 0x22 — SYS_DBG_REGS
     dw .fn_exit             ; 0x23 — SYS_EXIT
     dw .fn_get_args         ; 0x24 — SYS_GET_ARGS
+    dw .fn_get_argc         ; 0x25 — SYS_GET_ARGC
+    dw .fn_get_argv         ; 0x26 — SYS_GET_ARGV
 
 ; ─── SYS_PRINT_STRING (AH=0x01) ──────────────────────────────────────────────
 ; Input:  DS:SI = pointer to null-terminated string
@@ -980,4 +986,65 @@ syscall_handler:
 .ga_done:
     pop ds
     clc
+    syscall_ret_cf
+
+; ─── SYS_GET_ARGC (AH=0x25) ──────────────────────────────────────────────────
+; Return the number of parsed arguments for the current program.
+;
+; The shell writes the argument count to ARGV_ARGC (0x7F00) before launching.
+;
+; Input:  AH = 0x25
+; Output: CL = argument count (0–15)
+;         CF = clear (always succeeds)
+; ──────────────────────────────────────────────────────────────────────────────
+.fn_get_argc:
+    push ds
+    xor ax, ax
+    mov ds, ax
+    mov cl, [ARGV_ARGC]
+    pop ds
+    clc
+    syscall_ret_cf
+
+; ─── SYS_GET_ARGV (AH=0x26) ──────────────────────────────────────────────────
+; Return a pointer to the Nth argument string.
+;
+; Input:  AH = 0x26
+;         CL = argument index (0-based)
+; Output: SI = pointer to NUL-terminated argument string (segment 0)
+;         CX = length of argument string
+;         CF = clear on success, set if index >= argc
+; ──────────────────────────────────────────────────────────────────────────────
+.fn_get_argv:
+    push ds
+    xor ax, ax
+    mov ds, ax
+    ; Validate index
+    cmp cl, [ARGV_ARGC]
+    jae .argv_bad_index
+    ; Get pointer from argv table: ARGV_PTRS + index*2
+    movzx bx, cl
+    shl bx, 1
+    add bx, ARGV_PTRS
+    mov si, [bx]
+    ; Calculate length
+    xor cx, cx
+    push si
+.argv_len:
+    cmp byte [si], 0
+    je .argv_len_done
+    inc si
+    inc cx
+    jmp .argv_len
+.argv_len_done:
+    pop si
+    pop ds
+    mov bx, [cs:.sc_temp]           ; Restore original BX
+    clc
+    syscall_ret_cf
+
+.argv_bad_index:
+    pop ds
+    mov bx, [cs:.sc_temp]           ; Restore original BX
+    stc
     syscall_ret_cf

@@ -65,5 +65,7 @@ SYS_DBG_REGS      equ 0x22          ; Dump AX,BX,CX,DX,SI,DI; DS:BX = tag
 ;
 SYS_EXIT          equ 0x23          ; AL = exit code (reserved); does not return
 SYS_GET_ARGS      equ 0x24          ; Returns: SI = pointer to args, CX = length
+SYS_GET_ARGC      equ 0x25          ; Returns: CL = argument count
+SYS_GET_ARGV      equ 0x26          ; CL = index; Returns: SI = arg, CX = length
 
-SYSCALL_MAX       equ 0x24          ; Highest valid syscall number
+SYSCALL_MAX       equ 0x26          ; Highest valid syscall number

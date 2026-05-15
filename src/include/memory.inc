@@ -94,6 +94,27 @@ USER_PROG_MAX_SEC equ 52             ; Maximum program size in sectors (26KB/512
 SHELL_SAVED_SP  equ 0x7FFE           ; Shell stores SP-2 here before call
 SHELL_ARGS_PTR  equ 0x7FFC           ; Shell stores args string pointer here
 
+; --- Parsed argument table (Layer 2: argc/argv) -------------------------------
+; The shell parses the argument string into individual tokens and stores them
+; here for programs to access via SYS_GET_ARGC / SYS_GET_ARGV.
+;
+; Layout (0x7F00–0x7FFB):
+;   0x7F00: argc (1 byte) — number of arguments (0–15)
+;   0x7F01: reserved (1 byte)
+;   0x7F02: argv[0] pointer (2 bytes)
+;   0x7F04: argv[1] pointer (2 bytes)
+;   ...
+;   0x7F20: argv[15] pointer (2 bytes)
+;   0x7F22–0x7FFB: argument string storage (NUL-separated tokens)
+;
+; See doc/COMMAND-LINE.md for the full specification.
+ARGV_TABLE      equ 0x7F00           ; Start of argv region
+ARGV_ARGC       equ 0x7F00           ; 1 byte: argument count
+ARGV_PTRS       equ 0x7F02           ; Array of 16 word pointers
+ARGV_STORAGE    equ 0x7F22           ; NUL-separated arg strings
+ARGV_STORAGE_END equ 0x7FFB          ; Last usable byte for arg storage
+ARGV_MAX_ARGS   equ 15               ; Maximum number of parsed arguments
+
 ; --- MCB (Memory Control Block) header layout --------------------------------
 ; Each heap block starts with a 4-byte header:
 ;   Offset 0: size    (2 bytes) — total block size INCLUDING header

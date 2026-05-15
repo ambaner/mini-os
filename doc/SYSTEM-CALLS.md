@@ -1060,6 +1060,12 @@ and SYS_GET_ARGS provides access to command-line arguments passed via `run`.
 | 0x23 | `SYS_EXIT` | Terminate running program | Restore shell SP + ret | — |
 | 0x24 | `SYS_GET_ARGS` | Get command-line arguments | Read [SHELL_ARGS_PTR] | — |
 
+**Parsed argument syscalls (0x25–0x26):** Implemented in v0.9.8.  These provide
+structured argc/argv access to command-line arguments parsed by the shell.
+
+| 0x25 | `SYS_GET_ARGC` | Get argument count | CL = argc from [ARGV_ARGC] | — |
+| 0x26 | `SYS_GET_ARGV` | Get argument by index | CL=index → SI=string, CX=len; CF if bad | — |
+
 ### 7.3 Stability Guarantee
 
 Following the Linux model (not Windows), **syscall numbers are a stable ABI**.

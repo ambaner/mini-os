@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.9.8] - 2026-05-15
+
+### Added
+- **Layer 2: Parsed Arguments (argc/argv)** — shell now tokenizes the command
+  line into structured arguments before launching programs:
+  - `SYS_GET_ARGC` (AH=0x25) — returns argument count in CL
+  - `SYS_GET_ARGV` (AH=0x26) — returns pointer to Nth argument (SI) and
+    length (CX); sets CF if index is out of bounds
+  - Double-quoted strings are treated as a single argument (quotes stripped)
+  - Maximum 15 arguments, ~200 bytes total argument storage
+- **`shell_parse_args.inc`** — new shell module that parses the raw argument
+  string into the argv table at 0x7F00
+- **ARGV memory region** (0x7F00–0x7FFB) — structured argc + pointer table +
+  NUL-separated string storage
+- **Backward compatible** — `SYS_GET_ARGS` (AH=0x24) still returns the raw
+  argument string unchanged
+
+### Changed
+- `SYSCALL_MAX` bumped from 0x24 to 0x26
+
+---
+
 ## [0.9.7] - 2026-05-15
 
 ### Added

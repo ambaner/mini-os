@@ -137,6 +137,7 @@ shell_prompt:
 %include "shell_cmd_simple.inc"
 %include "shell_cmd_dir.inc"
 %include "shell_cmd_run.inc"
+%include "shell_parse_args.inc"
 %include "shell_cmd_mem.inc"
 %include "shell_cmd_sysinfo.inc"
 

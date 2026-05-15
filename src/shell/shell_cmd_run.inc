@@ -47,6 +47,9 @@ run_skip_spaces:
     mov ax, [run_args_ptr]
     mov [SHELL_ARGS_PTR], ax
 
+    ; --- Step 2b: Parse args into structured argc/argv table ------------------
+    call shell_parse_args
+
     ; --- Step 3: Find file -------------------------------------------------------
     mov si, run_fname_buf           ; DS:SI = 11-byte filename (or 8-byte name)
     cmp byte [run_ext_provided], 0
