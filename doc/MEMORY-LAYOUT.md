@@ -52,7 +52,7 @@ or data in real mode — they are memory-mapped hardware regions.
 
 ---
 
-## 2. mini-os Memory Map (v0.9.0)
+## 2. mini-os Memory Map (v0.9.6)
 
 mini-os uses the lower portion of conventional memory (0x0500–0xF7FF).  The
 layout was designed around four constraints:
@@ -94,8 +94,8 @@ Address       Size      Contents                 Lifetime
                                                     manages heap at 0x8000
 
 0x0000:0x3000  8192 B   SHELL.SYS                 Permanent (OS runtime)
-               (8 KB     (12 sectors = 6 KB used,  Loaded by KERNEL, runs
-                max)      2 KB growth room)         as user-mode executable
+               (8 KB     (16 sectors = 8 KB used)   Loaded by KERNEL, runs
+                max)                                 as user-mode executable
                                                     via INT 0x80 syscalls
 
 0x0000:0x5000  8192 B   KERNEL.SYS                Permanent (OS runtime)
@@ -115,12 +115,17 @@ Address       Size      Contents                 Lifetime
                (16 sec   (temporary staging area)  before copying to 0x7C00
                 max)                                — dead after boot
 
-0x0000:0x8000  30720 B  HEAP (managed by MM.SYS)  Dynamic allocation region
-               (30 KB)   MCB-style block headers,   Initialized as single free
+0x0000:0x8000  4096 B   HEAP (managed by MM.SYS)  Dynamic allocation region
+               (4 KB)    MCB-style block headers,   Initialized as single free
                           first-fit allocation,      block by mm_init; available
                           INT 0x82 API               via INT 0x82 MEM_ALLOC/FREE
 
-0x0000:0xF800           (End of heap)             0xF7FF is last usable byte
+0x0000:0x9000  26624 B  TPA (Transient Prog Area)  User programs loaded here
+               (26 KB)   Programs loaded by shell   via `run` command. ORG 0x9000.
+                          `run` command, validated    Discarded on return.
+                          (MNEX magic, attributes)
+
+0x0000:0xF800           (End of TPA/heap)          0xF7FF is last usable byte
 
 0x0000:0x9FC00           EBDA / BIOS reserved      Platform-dependent
 ...
@@ -141,7 +146,8 @@ the BIOS Data Area, in a region that the BIOS guarantees is free.
 | 0x0601 | 1 B | `a20_status` | LOADER | KERNEL, SHELL (via syscall) |
 | 0x0602 | 4 B | `part_lba` | VBR | LOADER, KERNEL (computes absolute LBAs) |
 | 0x0606 | 1 B | `boot_mode` | LOADER | KERNEL, SHELL (0=release, 1=debug) |
-| 0x0607 | 9 B | *reserved* | — | Future expansion |
+| 0x0607 | 1 B | `int_depth` | KERNEL, FS | KERNEL, FS (INT nesting counter, debug) |
+| 0x0608 | 8 B | *reserved* | — | Future expansion |
 
 **Why 0x0600?**  This address sits in the "free area" between the BDA (ends at
 0x04FF) and the traditional boot sector load point (0x7C00).  The real-mode

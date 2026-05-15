@@ -10,6 +10,9 @@ syscall_handler:
     mov [cs:.sc_temp], bx           ; Save BX in kernel data area
 
 %ifdef DEBUG
+    ; --- Increment nesting depth ---
+    inc byte [cs:BIB_INT_DEPTH]
+
     ; --- Syscall trace: log function name + AX + original BX to serial ---
     push si
     push ax
@@ -46,6 +49,43 @@ syscall_handler:
     mov ax, [cs:.sc_temp]           ; original BX
     call serial_hex16
 
+    ; Print CF state from caller's FLAGS (on interrupt stack frame)
+    ; Stack: [SP+0]=AX, [SP+2]=SI, [SP+4]=IP, [SP+6]=CS, [SP+8]=FLAGS
+    mov si, .sc_trace_cf            ; " CF="
+    call serial_puts
+    push bp
+    mov bp, sp
+    test byte [bp+10], 0x01         ; FLAGS at BP+10 (BP,AX,SI,IP,CS,FLAGS)
+    pop bp
+    jz .sc_cf_zero
+    mov al, '1'
+    jmp .sc_cf_print
+.sc_cf_zero:
+    mov al, '0'
+.sc_cf_print:
+    call serial_putc
+
+    ; Print IF state from caller's FLAGS
+    mov si, .sc_trace_if            ; " IF="
+    call serial_puts
+    push bp
+    mov bp, sp
+    test byte [bp+11], 0x02         ; IF is bit 9 = bit 1 of high byte at BP+11
+    pop bp
+    jz .sc_if_zero
+    mov al, '1'
+    jmp .sc_if_print
+.sc_if_zero:
+    mov al, '0'
+.sc_if_print:
+    call serial_putc
+
+    ; Print nesting depth
+    mov si, .sc_trace_depth         ; " D="
+    call serial_puts
+    mov al, [cs:BIB_INT_DEPTH]
+    call serial_hex8
+
     call serial_crlf
     pop ax
     mov bx, [cs:.sc_temp]           ; restore BX (was clobbered by name lookup)
@@ -75,6 +115,18 @@ syscall_handler:
 .sc_trace_ah:  db 'AH=', 0
 .sc_trace_ax:  db ' AX=', 0
 .sc_trace_bx:  db ' BX=', 0
+.sc_trace_cf:  db ' CF=', 0
+.sc_trace_if:  db ' IF=', 0
+
+; EXIT trace strings for READ_SECTOR
+.sc_exit_pfx:  db '[SYS] READ_SECTOR -> ', 0
+.sc_exit_cf:   db 'CF=', 0
+.sc_exit_if:   db ' IF=', 0
+.sc_exit_err:  db ' AH=', 0
+.sc_trace_depth: db ' D=', 0
+
+; DAP dump prefix
+.sc_dap_pfx:   db '[SYS] DAP: ', 0
 
 ; Syscall name strings (short, human-readable)
 .sn_01: db 'PRINT_STRING', 0
@@ -107,6 +159,8 @@ syscall_handler:
 .sn_20: db 'DBG_PRINT', 0
 .sn_21: db 'DBG_HEX16', 0
 .sn_22: db 'DBG_REGS', 0
+.sn_23: db 'EXIT', 0
+.sn_24: db 'GET_ARGS', 0
 
 ; Name pointer table (indexed by AH, 0x00–0x1B)
 .sc_name_table:
@@ -145,6 +199,8 @@ syscall_handler:
     dw .sn_20       ; 0x20
     dw .sn_21       ; 0x21
     dw .sn_22       ; 0x22
+    dw .sn_23       ; 0x23
+    dw .sn_24       ; 0x24
 %endif
 
 ; --- Syscall jump table (35 entries: 0x00–0x22, gap 0x1C–0x1F reserved) ------
@@ -184,6 +240,8 @@ syscall_handler:
     dw .fn_dbg_print        ; 0x20 — SYS_DBG_PRINT
     dw .fn_dbg_hex16        ; 0x21 — SYS_DBG_HEX16
     dw .fn_dbg_regs         ; 0x22 — SYS_DBG_REGS
+    dw .fn_exit             ; 0x23 — SYS_EXIT
+    dw .fn_get_args         ; 0x24 — SYS_GET_ARGS
 
 ; ─── SYS_PRINT_STRING (AH=0x01) ──────────────────────────────────────────────
 ; Input:  DS:SI = pointer to null-terminated string
@@ -205,7 +263,7 @@ syscall_handler:
     pop bx
     pop si
     pop ax
-    iret
+    syscall_iret
 
 ; ─── SYS_PRINT_CHAR (AH=0x02) ────────────────────────────────────────────────
 ; Input:  AL = character to print
@@ -219,7 +277,7 @@ syscall_handler:
     int 0x10
     pop bx
     pop ax
-    iret
+    syscall_iret
 
 ; ─── SYS_READ_KEY (AH=0x03) ──────────────────────────────────────────────────
 ; Input:  none
@@ -228,7 +286,7 @@ syscall_handler:
 .fn_read_key:
     xor ah, ah
     int 0x16                        ; BIOS keyboard: wait for keypress
-    iret
+    syscall_iret
 
 ; ─── SYS_READ_SECTOR (AH=0x04) ───────────────────────────────────────────────
 ; Input:  EDI = absolute LBA sector number
@@ -250,10 +308,94 @@ syscall_handler:
     mov [dap_buffer], bx
     mov [dap_buffer+2], es
 
+%ifdef DEBUG
+    ; --- DAP dump: show full 16-byte DAP contents before INT 0x13 ---
+    push ax
+    push cx
+    push si
+    mov si, .sc_dap_pfx             ; "[SYS] DAP: "
+    call serial_puts
+    ; Print 16 bytes as hex: size(2) sectors(2) buf_off(2) buf_seg(2) lba(8)
+    mov si, dap
+    mov cx, 16
+.sc_dap_loop:
+    lodsb
+    call serial_hex8
+    mov al, ' '
+    call serial_putc
+    loop .sc_dap_loop
+    call serial_crlf
+    pop si
+    pop cx
+    pop ax
+%endif
+
     mov dl, [BIB_DRIVE]
     mov si, dap
     mov ah, 0x42
+    sti                             ; BIOS INT 0x13 needs interrupts for DMA
     int 0x13
+
+%ifdef DEBUG
+    ; --- EXIT trace: show return CF, IF, and BIOS error code ------------------
+    pushf                           ; Save FLAGS (CF from INT 0x13)
+    push ax                         ; Save AX (AH = BIOS error code if CF=1)
+    push si
+
+    mov si, .sc_exit_pfx            ; "[SYS] READ_SECTOR -> "
+    call serial_puts
+
+    ; Print CF state
+    mov si, .sc_exit_cf
+    call serial_puts
+    push bp
+    mov bp, sp
+    test byte [bp+6], 0x01          ; FLAGS at BP+6 (BP, SI, AX, FLAGS)
+    pop bp
+    jz .sc_exit_cf0
+    mov al, '1'
+    jmp .sc_exit_cf_print
+.sc_exit_cf0:
+    mov al, '0'
+.sc_exit_cf_print:
+    call serial_putc
+
+    ; Print IF state
+    mov si, .sc_exit_if
+    call serial_puts
+    push bp
+    mov bp, sp
+    test byte [bp+7], 0x02          ; IF is bit 9 of FLAGS = bit 1 of high byte
+    pop bp
+    jz .sc_exit_if0
+    mov al, '1'
+    jmp .sc_exit_if_print
+.sc_exit_if0:
+    mov al, '0'
+.sc_exit_if_print:
+    call serial_putc
+
+    ; Print BIOS error code (AH after INT 0x13)
+    mov si, .sc_exit_err
+    call serial_puts
+    push bp
+    mov bp, sp
+    mov ax, [bp+4]                  ; AX saved on stack: BP, SI, AX, FLAGS
+    pop bp
+    mov al, ah                      ; AH = BIOS error code
+    call serial_hex8
+
+    ; Print nesting depth
+    mov si, .sc_trace_depth
+    call serial_puts
+    mov al, [cs:BIB_INT_DEPTH]
+    call serial_hex8
+
+    call serial_crlf
+    pop si
+    pop ax
+    popf                            ; Restore FLAGS (CF intact)
+%endif
 
     pop dx
     pop si
@@ -265,7 +407,7 @@ syscall_handler:
 ; ──────────────────────────────────────────────────────────────────────────────
 .fn_get_version:
     mov ax, 0x0905                  ; Version 9.5 (v0.9.5)
-    iret
+    syscall_iret
 
 ; ─── SYS_CLEAR_SCREEN (AH=0x06) ──────────────────────────────────────────────
 ; Input:  none
@@ -276,7 +418,7 @@ syscall_handler:
     mov ax, 0x0003
     int 0x10
     pop ax
-    iret
+    syscall_iret
 
 ; ─── SYS_SET_CURSOR (AH=0x07) ────────────────────────────────────────────────
 ; Input:  DH = row, DL = column
@@ -290,7 +432,7 @@ syscall_handler:
     int 0x10
     pop bx
     pop ax
-    iret
+    syscall_iret
 
 ; ─── SYS_GET_CURSOR (AH=0x08) ────────────────────────────────────────────────
 ; Input:  none
@@ -304,7 +446,7 @@ syscall_handler:
     int 0x10                        ; Returns DH=row, DL=col
     pop bx
     pop ax
-    iret
+    syscall_iret
 
 ; ─── SYS_CHECK_A20 (AH=0x09) ─────────────────────────────────────────────────
 ; Input:  none
@@ -345,7 +487,7 @@ syscall_handler:
     pop es
     pop ds
     mov al, cl
-    iret
+    syscall_iret
 
 ; ─── SYS_GET_CONV_MEM (AH=0x0A) ──────────────────────────────────────────────
 ; Input:  none
@@ -353,7 +495,7 @@ syscall_handler:
 ; ──────────────────────────────────────────────────────────────────────────────
 .fn_get_conv_mem:
     int 0x12                        ; AX = KB of conventional memory
-    iret
+    syscall_iret
 
 ; ─── SYS_GET_EXT_MEM (AH=0x0B) ───────────────────────────────────────────────
 ; Input:  none
@@ -409,7 +551,7 @@ syscall_handler:
     xor ax, ax
     mov es, ax
     mov bx, 0x0600
-    iret
+    syscall_iret
 
 ; ─── SYS_PRINT_HEX8 (AH=0x10) ───────────────────────────────────────────────
 ; Input:  AL = byte to print as two hex digits
@@ -428,7 +570,7 @@ syscall_handler:
     call .hex_nibble
     pop bx
     pop ax
-    iret
+    syscall_iret
 
 .hex_nibble:
     add al, '0'
@@ -470,7 +612,7 @@ syscall_handler:
     pop dx
     pop bx
     pop ax
-    iret
+    syscall_iret
 
 ; ─── SYS_PRINT_DEC16 (AH=0x12) ──────────────────────────────────────────────
 ; Input:  DX = word to print as unsigned decimal
@@ -508,7 +650,7 @@ syscall_handler:
     pop cx
     pop bx
     pop ax
-    iret
+    syscall_iret
 
 ; ─── SYS_WAIT_KEY (AH=0x13) ──────────────────────────────────────────────────
 ; Input:  none
@@ -527,7 +669,7 @@ syscall_handler:
     pop bx
     pop si
     pop ax
-    iret
+    syscall_iret
 
 ; ─── SYS_GET_EQUIP (AH=0x14) ─────────────────────────────────────────────────
 ; Input:  none
@@ -535,7 +677,7 @@ syscall_handler:
 ; ──────────────────────────────────────────────────────────────────────────────
 .fn_get_equip:
     int 0x11
-    iret
+    syscall_iret
 
 ; ─── SYS_GET_VIDEO (AH=0x15) ─────────────────────────────────────────────────
 ; Input:  none
@@ -544,7 +686,7 @@ syscall_handler:
 .fn_get_video:
     mov ah, 0x0F
     int 0x10
-    iret
+    syscall_iret
 
 ; ─── SYS_GET_BDA_BYTE (AH=0x16) ──────────────────────────────────────────────
 ; Input:  BX = offset within BDA (0x0400–0x04FF)
@@ -558,7 +700,7 @@ syscall_handler:
     pop ax
     mov al, [ds:bx]
     pop ds
-    iret
+    syscall_iret
 
 ; ─── SYS_GET_BDA_WORD (AH=0x17) ──────────────────────────────────────────────
 ; Input:  BX = offset within BDA (0x0400–0x04FF)
@@ -570,7 +712,7 @@ syscall_handler:
     mov ds, ax
     mov ax, [ds:bx]
     pop ds
-    iret
+    syscall_iret
 
 ; ─── SYS_CPUID (AH=0x18) ─────────────────────────────────────────────────────
 ; Input:  EDI = CPUID leaf number (EAX is used by the dispatcher for AH,
@@ -580,7 +722,7 @@ syscall_handler:
 .fn_cpuid:
     mov eax, edi                    ; Move leaf from EDI into EAX
     cpuid
-    iret
+    syscall_iret
 
 ; ─── SYS_CHECK_CPUID (AH=0x19) ───────────────────────────────────────────────
 ; Input:  none
@@ -601,10 +743,10 @@ syscall_handler:
     test eax, 0x00200000
     jz .no_cpuid_support
     mov al, 1
-    iret
+    syscall_iret
 .no_cpuid_support:
     xor al, al
-    iret
+    syscall_iret
 
 ; ─── SYS_GET_EDD (AH=0x1A) ───────────────────────────────────────────────────
 ; Input:  DL = drive number
@@ -633,7 +775,7 @@ syscall_handler:
     mov dx, [ds:bx+2]              ; Segment
     pop bx
     pop ds
-    iret
+    syscall_iret
 
 ; ─── SYS_DBG_PRINT (AH=0x20) ──────────────────────────────────────────────────
 ; Input:  DS:SI = NUL-terminated message string
@@ -656,7 +798,7 @@ syscall_handler:
     pop ax
     pop si
 %endif
-    iret
+    syscall_iret
 
 ; ─── SYS_DBG_HEX16 (AH=0x21) ─────────────────────────────────────────────────
 ; Input:  DX = 16-bit value to display
@@ -676,7 +818,7 @@ syscall_handler:
     pop si
     pop ax
 %endif
-    iret
+    syscall_iret
 
 ; ─── SYS_DBG_REGS (AH=0x22) ──────────────────────────────────────────────────
 ; Input:  DS:BX = NUL-terminated tag string; BX=0 → default "USR"
@@ -736,7 +878,7 @@ syscall_handler:
     pop si
     pop ax
 %endif
-    iret
+    syscall_iret
 
 %ifdef DEBUG
 ; ─── .dbg_emit_tag — print "[TAG] " to serial ────────────────────────────────
@@ -775,3 +917,67 @@ syscall_handler:
 .dbg_save_si:  dw 0
 .dbg_save_di:  dw 0
 %endif
+
+; ─── SYS_EXIT (AH=0x23) ──────────────────────────────────────────────────────
+; Terminate the running user program and return to the shell.
+;
+; This syscall does NOT return to the caller.  It abandons the current INT
+; stack frame, restores the shell's stack pointer (which points at the return
+; address from the shell's `call` instruction), and does a near `ret` back
+; into the shell.
+;
+; Input:  AH = 0x23, AL = exit code (reserved for future use, ignored)
+; Output: Does not return — control transfers to shell
+;
+; Implementation notes:
+;   - Restores DS=ES=SS=0 for segment safety (a misbehaving program may
+;     have changed them)
+;   - Reads SHELL_SAVED_SP from the fixed shared address (0x7FFE)
+;   - The shell stores SP-2 there before calling the program, so the
+;     value points directly at the return address on the stack
+;   - After `ret`, the shell resumes at the instruction after `call`
+; ──────────────────────────────────────────────────────────────────────────────
+.fn_exit:
+    cli                             ; Disable interrupts during stack switch
+    xor ax, ax
+    mov ds, ax                      ; Restore DS = 0 (flat model)
+    mov es, ax                      ; Restore ES = 0
+    mov ss, ax                      ; Restore SS = 0
+    mov sp, [SHELL_SAVED_SP]        ; SP → return address from shell's call
+    sti                             ; Re-enable interrupts
+    ret                             ; Near return to shell
+
+; ─── SYS_GET_ARGS (AH=0x24) ──────────────────────────────────────────────────
+; Return a pointer to the command-line arguments passed to the current program.
+;
+; The shell stores a pointer to the argument string (everything after the
+; filename in `run PROG.MNX args...`) at the fixed address SHELL_ARGS_PTR
+; before launching the program.
+;
+; Input:  AH = 0x24
+; Output: SI = pointer to NUL-terminated argument string (DS:SI, DS=0)
+;         CX = length of argument string (0 if no args)
+;         CF = clear (always succeeds)
+; ──────────────────────────────────────────────────────────────────────────────
+.fn_get_args:
+    push ds
+    xor ax, ax
+    mov ds, ax
+    mov si, [SHELL_ARGS_PTR]        ; SI → args string (or 0 if none)
+    ; Calculate length (count until NUL)
+    xor cx, cx
+    test si, si
+    jz .ga_done
+    push si
+.ga_len:
+    cmp byte [si], 0
+    je .ga_len_done
+    inc si
+    inc cx
+    jmp .ga_len
+.ga_len_done:
+    pop si                          ; Restore SI to start of string
+.ga_done:
+    pop ds
+    clc
+    syscall_ret_cf

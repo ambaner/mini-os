@@ -11,7 +11,7 @@ msg_tag_debug   db '[Debug]', 13, 10, 13, 10, 0
 
 msg_prompt      db 'mnos:\>', 0
 
-msg_unknown     db 'Unknown command: ', 0
+msg_unknown     db 'Unknown command', 13, 10, 0
 
 msg_help_text   db 'Available commands:', 13, 10
                 db '  sysinfo  - Display system information (5 pages)', 13, 10
@@ -38,7 +38,7 @@ msg_ver_rest    db '  Arch:      x86 real mode (16-bit)', 13, 10
                 db '  Platform:  Hyper-V Gen 1', 13, 10
                 db '  Boot:      MBR -> VBR -> LOADER -> KERNEL -> SHELL', 13, 10
                 db '  Filesystem: MNFS v1 (flat, INT 0x81)', 13, 10
-                db '  Memory:    INT 0x82 heap (30 KB)', 13, 10
+                db '  Memory:    INT 0x82 heap (4 KB) + TPA (26 KB)', 13, 10
                 db '  Disk:      16 MB fixed VHD', 13, 10
                 db '  Source:    github.com/ambaner/mini-os', 13, 10, 0
 
@@ -134,8 +134,9 @@ msg_layout      db '    0x00000-0x003FF  1 KB    IVT (Interrupt Vector Table)', 
                 db '    0x03000-0x04FFF  8 KB    SHELL.SYS (this code)', 13, 10
                 db '    0x05000-0x06FFF  8 KB    KERNEL.SYS (INT 0x80)', 13, 10
                 db '    0x07000-0x07BFF  3 KB    Stack', 13, 10
-                db '    0x07C00-0x07FFF  1 KB    VBR (boot only)', 13, 10
-                db '    0x08000-0x0F7FF  30 KB   HEAP (managed by MM)', 13, 10
+                db '    0x07C00-0x07FFF  1 KB    VBR/ABI (SP+args)', 13, 10
+                db '    0x08000-0x08FFF  4 KB    HEAP (managed by MM)', 13, 10
+                db '    0x09000-0x0F7FF  26 KB   TPA (user programs)', 13, 10
                 db '    0x0A000-0x0BFFF  8 KB    Video RAM', 13, 10
                 db '    0x0C000-0x0FFFF  16 KB   ROM area (BIOS, VGA)', 13, 10
                 db '    0x10000-0xFFFFF  960 KB  Extended (requires A20)', 13, 10, 0

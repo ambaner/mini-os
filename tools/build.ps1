@@ -8,7 +8,7 @@
     2. Assembles shared components: MBR, VBR, LOADER
     3. Assembles release variants: FS, KERNEL, SHELL
     4. Assembles debug variants: FSD, KERNELD, SHELLD (with -dDEBUG)
-    5. Creates a partitioned raw disk image with all 7 MNFS files
+    5. Creates a partitioned raw disk image with all 9 MNFS files
     6. Wraps the raw image as a VHD
 
 .PARAMETER Clean
@@ -156,16 +156,42 @@ Build-Binary -Name 'KERNELD' -AsmPath $KernelAsm -BinPath $KernelDbgBin -Debug
 Build-Binary -Name 'SHELLD'  -AsmPath $ShellAsm  -BinPath $ShellDbgBin  -Debug
 Build-Binary -Name 'MMD'     -AsmPath $MmAsm     -BinPath $MmDbgBin     -Debug
 
+# ---------- assemble user programs ------------------------------------------
+Write-Step '--- User programs ---'
+$ProgramsDir = Join-Path $Root 'src\programs'
+$ProgramOut  = @()
+if (Test-Path $ProgramsDir) {
+    $programs = Get-ChildItem $ProgramsDir -Filter '*.asm'
+    foreach ($prog in $programs) {
+        $outName = [System.IO.Path]::GetFileNameWithoutExtension($prog.Name) + '.mnx'
+        $outPath = Join-Path $BuildDir $outName
+        Build-Binary -Name $outName.ToUpper() -AsmPath $prog.FullName -BinPath $outPath
+        $ProgramOut += $outPath
+    }
+}
+
 # ---------- create partitioned disk image -----------------------------------
 Write-Step 'Creating partitioned disk image...'
 $DiskScript = Join-Path $ToolsDir 'create-disk.ps1'
-& $DiskScript `
-    -MbrPath $MbrBin -VbrPath $VbrBin -LoaderPath $LoaderBin `
-    -FsPath $FsBin -KernelPath $KernelBin -ShellPath $ShellBin `
-    -MmPath $MmBin `
-    -FsDbgPath $FsDbgBin -KernelDbgPath $KernelDbgBin -ShellDbgPath $ShellDbgBin `
-    -MmDbgPath $MmDbgBin `
-    -OutputPath $RawImg -SizeMB $DiskSizeMB
+$diskParams = @{
+    MbrPath       = $MbrBin
+    VbrPath       = $VbrBin
+    LoaderPath    = $LoaderBin
+    FsPath        = $FsBin
+    KernelPath    = $KernelBin
+    ShellPath     = $ShellBin
+    MmPath        = $MmBin
+    FsDbgPath     = $FsDbgBin
+    KernelDbgPath = $KernelDbgBin
+    ShellDbgPath  = $ShellDbgBin
+    MmDbgPath     = $MmDbgBin
+    OutputPath    = $RawImg
+    SizeMB        = $DiskSizeMB
+}
+if ($ProgramOut.Count -gt 0) {
+    $diskParams['UserPrograms'] = $ProgramOut
+}
+& $DiskScript @diskParams
 
 # ---------- create VHD ------------------------------------------------------
 Write-Step 'Creating VHD...'

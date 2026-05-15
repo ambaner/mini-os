@@ -8,7 +8,7 @@
 ; Architecture:
 ;   User mode (SHELL)  →  INT 0x82  →  MM.SYS  →  manages heap at 0x8000
 ;
-; The heap is a contiguous region from 0x8000 to 0xF7FF (30 KB).  It is
+; The heap is a contiguous region from 0x8000 to 0x8FFF (4 KB).  It is
 ; managed as a linked list of Memory Control Blocks (MCBs).  Each block
 ; has a 4-byte header:
 ;
@@ -98,7 +98,7 @@ mm_init:
     mov byte [bx + MCB_FLAGS_OFF], 0x00       ; Free
     mov byte [bx + MCB_MAGIC_OFF], MCB_MAGIC  ; 'M'
 
-    DBG "MM: heap initialized 0x8000-0xF7FF"
+    DBG "MM: heap initialized 0x8000-0x8FFF"
 
     clc                              ; Success
     ret

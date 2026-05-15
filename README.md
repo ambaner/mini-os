@@ -168,7 +168,7 @@ mini-os/
 │       └── shell_data.inc         # String constants + runtime data buffers
 ├── tools/
 │   ├── build.ps1              # Build logic — assembles 9 binaries, creates VHD
-│   ├── create-disk.ps1        # Partitioned raw disk image creator (7 MNFS files)
+│   ├── create-disk.ps1        # Partitioned raw disk image creator (9 MNFS files)
 │   ├── create-vhd.bat         # VHD tool — batch wrapper
 │   ├── create-vhd.ps1         # Raw image → VHD converter (pure PowerShell)
 │   ├── setup-vm.ps1           # Hyper-V VM create/update logic
@@ -265,8 +265,8 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.8.1` | **Stack Canary** | Debug-only stack overflow detection; canary at 0x7000 checked on every syscall; fatal halt with diagnostic on corruption |
 | `v0.9.0` | **Memory Manager** | MM.SYS heap allocator at 0x2800; INT 0x82 API (alloc/free/avail/info); 30 KB heap at 0x8000; MCB block headers; first-fit with coalescing |
 | `v0.9.1` | **mem + MM tracing** | Shell `mem` shows heap stats (total/used/free/blocks/largest); memory layout includes MM + heap; debug serial tracing for all MM calls |
-| `v0.9.5` | **File extensions** | System binaries renamed `.BIN` → `.SYS` (kernel-loaded, resident); `.MNX` convention for future user-mode executables (shell-loaded, transient) |
 | `v0.9.2` | **MCB owner tags** | Flags byte bits 1-3 carry 3-bit owner ID; MEM_ALLOC DL=owner; shell `mem` block detail walk with owner names; debug trace logs owner |
+| `v0.9.5` | **File extensions** | System binaries renamed `.BIN` → `.SYS` (kernel-loaded, resident); `.MNX` convention for future user-mode executables (shell-loaded, transient) |
 
 ```cmd
 git checkout v0.1.0      # see the project at any prior milestone

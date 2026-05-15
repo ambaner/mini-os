@@ -5,7 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
-
+
+## [Unreleased]
+
+### Added
+- **INT nesting depth counter** (`BIB_INT_DEPTH` at 0x0607) — shared byte
+  tracks total INT 0x80 / INT 0x81 nesting depth, displayed as `D=xx` in
+  all syscall entry/exit traces
+- **DAP hex dump** — full 16-byte Disk Address Packet printed to serial
+  before every INT 0x13 call (both kernel and FS paths)
+- **`syscall_iret` macro** — replaces all 25 bare `iret` in kernel dispatcher;
+  decrements depth counter before returning
+- **`syscall_ret_cf` macro** — same for CF-returning syscalls via `retf 2`
+- **FS error traces** — `[FS] DAP: ...`, `[FS] INT13 ERR AH=xx`,
+  `[FS] RF: not_found` diagnostics
+
+### Fixed
+- **EDI-clobbers-DI bug in FS read_file** — `mov edi, [es:di + START]`
+  destroyed DI before `mov cx, [es:di + SECTORS]`, causing garbage sector
+  counts (up to 248) that crossed the 64 KB DMA boundary (BIOS error AH=09).
+  Fix: read CX (sectors) before EDI (start LBA).
+
+### Changed
+- **Kernel debug build** grown from 12 to 14 sectors (DAP dump code + traces)
+- **Syscall trace format** now includes `D=xx` depth and `CF=x IF=x` flags
+- **DEBUGGING.md** updated to v1.4 with §4.8 (INT depth & DAP diagnostics)
+
+---
+
+
 ## [0.9.5] - 2026-05-14
 
 ### Changed

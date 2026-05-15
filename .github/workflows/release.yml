@@ -67,7 +67,7 @@ jobs:
         (A20 enablement), which loads KERNEL.SYS (INT 0x80 syscall interface),
         which loads FS.SYS (filesystem), MM.SYS (memory manager), and
         SHELL.SYS (interactive shell).
-        Commands: sysinfo, mem, ver, help, cls, dir, reboot.
+        Commands: sysinfo, mem, ver, help, cls, dir, run, reboot.
 
         CONTENTS
         --------
@@ -76,7 +76,7 @@ jobs:
         distro\mbr\loader.sys   LOADER.SYS (3 sectors)
         distro\mbr\fs.sys       FS.SYS (2 sectors)
         distro\mbr\kernel.sys   KERNEL.SYS (8 sectors)
-        distro\mbr\shell.sys    SHELL.SYS (14 sectors)
+        distro\mbr\shell.sys    SHELL.SYS (16 sectors)
         distro\mbr\mm.sys       MM.SYS (1 sector)
         vhd\mini-os.vhd       16 MB fixed VHD — ready to boot in Hyper-V
         setup-vm\             Scripts to create/update a Hyper-V VM

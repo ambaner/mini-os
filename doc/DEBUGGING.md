@@ -1,7 +1,7 @@
 # Debugging Infrastructure — Design Document
 
-**Version:** 1.3
-**Status:** Partially implemented — v0.7.0 (serial, tracing, build mode), v0.7.1 (user-mode debug syscalls), v0.7.2 (assert macros), v0.7.4 (fault handlers), v0.8.1 (stack canary)
+**Version:** 1.4
+**Status:** Partially implemented — v0.7.0 (serial, tracing, build mode), v0.7.1 (user-mode debug syscalls), v0.7.2 (assert macros), v0.7.4 (fault handlers), v0.8.1 (stack canary), v0.9.6 (INT depth, DAP diagnostics)
 **Audience:** mini-os developers
 
 ---
@@ -754,6 +754,96 @@ An alternative design would include `serial.inc` in shell.asm and call
 
 The `[SHL]` lines are new in v0.7.1 — they show the shell's internal
 state alongside the kernel's syscall trace.
+
+### 4.8 INT Nesting Depth & DAP Diagnostics *(implemented in v0.9.6)*
+
+#### 4.8.1 The Problem
+
+In v0.9.6 development, a program loader bug produced `INT 0x13 AH=09`
+(DMA boundary error) when loading user programs.  The existing traces showed
+which syscall failed, but could not reveal:
+
+1. **How deeply nested** the interrupt was — FS calls INT 0x81, which
+   internally calls INT 0x80 (READ_SECTOR), which calls INT 0x13.  A triple-
+   nested interrupt chain was invisible in the flat trace.
+2. **What the DAP (Disk Address Packet) contained** — the BIOS error code
+   said "DMA boundary crossed" but without seeing the actual sector count
+   and buffer address, it was impossible to tell what was wrong.
+3. **Root cause** — turned out to be a register clobber (`mov edi, ...`
+   destroyed DI, corrupting a subsequent `mov cx, [es:di + ...]`) that wrote
+   248 sectors into the DAP instead of 1.
+
+#### 4.8.2 Solution: Shared INT Depth Counter
+
+A single byte counter at `BIB_INT_DEPTH` (absolute address 0x0607, in the
+Boot Info Block) tracks total interrupt nesting depth across both INT 0x80
+and INT 0x81 handlers:
+
+```nasm
+; Entry (both kernel and FS handlers):
+    inc byte [cs:BIB_INT_DEPTH]
+
+; Exit (via syscall_iret macro or fs_iret_cf_*):
+    dec byte [cs:BIB_INT_DEPTH]
+```
+
+The depth value is appended to every trace line as `D=xx`:
+
+```
+[SYS] READ_SECTOR AX=0400 BX=9000 CF=0 IF=1 D=01
+[FS]  READ_FILE                                D=02
+[SYS] READ_SECTOR AX=0443 BX=9000 CF=0 IF=1 D=02
+```
+
+This immediately shows that the second READ_SECTOR is nested inside FS's
+READ_FILE handler (depth 2), not a direct shell call (depth 1).
+
+#### 4.8.3 Solution: DAP Hex Dump
+
+Before every INT 0x13 call (both in kernel's READ_SECTOR handler and FS's
+direct path), the full 16-byte DAP is dumped to serial:
+
+```
+[SYS] DAP: 10 00 01 00 00 90 00 00 45 08 00 00 00 00 00 00
+            ^^    ^^^^  ^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^
+            size  cnt   buf addr   LBA (64-bit)
+```
+
+When the EDI-clobbers-DI bug was active, the dump showed:
+
+```
+[FS] DAP: 10 00 F8 00 00 90 00 00 45 08 00 00 00 00 00 00
+                 ^^^^
+                 Sector count = 0xF8 (248) — should be 0x01!
+                 248 × 512 = 124 KB, crosses 64 KB DMA boundary → AH=09
+```
+
+The bug was identified in seconds from this single line.
+
+#### 4.8.4 `syscall_iret` Macro
+
+All 25 `iret` instructions in `kernel_syscall.inc` were replaced with
+`syscall_iret`, which decrements the depth counter before returning:
+
+```nasm
+%macro syscall_iret 0
+    dec byte [cs:BIB_INT_DEPTH]
+    iret
+%endmacro
+```
+
+Similarly, `syscall_ret_cf` (used for CF-returning syscalls via `retf 2`)
+decrements depth before the far return.
+
+#### 4.8.5 FS Error Traces
+
+The FS module now emits additional diagnostics:
+
+| Trace | Meaning |
+|-------|---------|
+| `[FS] DAP: xx xx ...` | 16-byte DAP dump before INT 0x13 |
+| `[FS] INT13 ERR AH=xx` | BIOS returned error, AH = status code |
+| `[FS] RF: not_found` | File not found during FS_READ_FILE |
 
 ---
 

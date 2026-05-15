@@ -341,6 +341,7 @@ Output:
     EAX = start sector (partition-relative)
     CX  = size in sectors
     EDX = size in bytes
+    BL  = attribute byte (v0.9.6+)
   CF set   = not found
 ```
 

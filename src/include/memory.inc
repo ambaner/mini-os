@@ -59,8 +59,40 @@ MM_OFF          equ 0x2800           ; Offset for MM.SYS
 MM_MAX_SECTORS  equ 4                ; Max 4 sectors (2 KB) before SHELL
 
 HEAP_START      equ 0x8000           ; Heap region start
-HEAP_END        equ 0xF800           ; Heap end (exclusive: last usable = 0xF7FF)
-HEAP_SIZE       equ HEAP_END - HEAP_START  ; 30,720 bytes (30 KB)
+HEAP_END        equ 0x9000           ; Heap end (exclusive: last usable = 0x8FFF)
+HEAP_SIZE       equ HEAP_END - HEAP_START  ; 4,096 bytes (4 KB)
+
+; =============================================================================
+; Transient Program Area (TPA) — user program loading zone
+;
+; User executables (.MNX files) are loaded into the TPA by the shell's `run`
+; command.  The TPA occupies the region immediately above the 4 KB heap:
+;   0x9000–0xF7FF (26 KB max program size)
+;
+; Programs are assembled with [ORG 0x9000] and execute in flat segment 0.
+; The TPA is not persistent — it is overwritten on each `run` invocation.
+;
+; See doc/PROGRAM-LOADER.md for the complete specification.
+; =============================================================================
+USER_PROG_BASE  equ 0x9000           ; Linear address: program load point
+USER_PROG_END   equ 0xF7FF           ; Last usable byte in TPA
+USER_PROG_MAX   equ 0x6800           ; Maximum program size (26 KB)
+USER_PROG_MAX_SEC equ 52             ; Maximum program size in sectors (26KB/512)
+
+; =============================================================================
+; Shell/Kernel shared state — Program loader ABI
+;
+; These fixed addresses are used to communicate between shell and kernel for
+; the SYS_EXIT and SYS_GET_ARGS syscalls.  They reside in the gap between
+; the VBR area (boot-only) and the heap start:
+;   0x7C00–0x7FFF  — originally VBR, free after boot
+;
+; Layout:
+;   0x7FFC  SHELL_ARGS_PTR  (2 bytes) — pointer to argument string
+;   0x7FFE  SHELL_SAVED_SP  (2 bytes) — shell's SP for SYS_EXIT return
+; =============================================================================
+SHELL_SAVED_SP  equ 0x7FFE           ; Shell stores SP-2 here before call
+SHELL_ARGS_PTR  equ 0x7FFC           ; Shell stores args string pointer here
 
 ; --- MCB (Memory Control Block) header layout --------------------------------
 ; Each heap block starts with a 4-byte header:

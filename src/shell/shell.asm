@@ -38,7 +38,7 @@
 ; SHELL HEADER
 ; =============================================================================
 shell_magic     db 'MNEX'           ; Magic identifier — user-mode executable
-shell_sectors   dw 14               ; Shell size in sectors (updated as needed)
+shell_sectors   dw 16               ; Shell size in sectors (updated as needed)
 
 ; =============================================================================
 ; SHELL INIT
@@ -129,18 +129,8 @@ shell_prompt:
     call strcmp
     je cmd_dir
 
-    ; Unknown command — print error and re-prompt
-    mov bx, dbg_tag
-    mov si, dbg_unknown
-    mov ah, SYS_DBG_PRINT
-    int 0x80
+    ; Unknown command
     mov si, msg_unknown
-    mov ah, SYS_PRINT_STRING
-    int 0x80
-    mov si, cmd_buf
-    mov ah, SYS_PRINT_STRING
-    int 0x80
-    mov si, msg_crlf
     mov ah, SYS_PRINT_STRING
     int 0x80
     jmp shell_prompt
@@ -156,6 +146,6 @@ shell_prompt:
 %include "shell_data.inc"
 
 ; =============================================================================
-; PADDING — fill to sector boundary (14 sectors = 7168 bytes)
+; PADDING — fill to sector boundary (16 sectors = 8192 bytes)
 ; =============================================================================
-times (14 * 512) - ($ - $$) db 0
+times (16 * 512) - ($ - $$) db 0

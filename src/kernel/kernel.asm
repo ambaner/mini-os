@@ -46,7 +46,7 @@
 ; =============================================================================
 kernel_magic    db 'MNKN'           ; Magic identifier — kernel
 %ifdef DEBUG
-kernel_sectors  dw 12               ; Kernel size in sectors (debug build)
+kernel_sectors  dw 14               ; Kernel size in sectors (debug build)
 %else
 kernel_sectors  dw 8                ; Kernel size in sectors (release build)
 %endif
@@ -261,8 +261,19 @@ install_syscalls:
 ; current FLAGS register (with the handler's CF) remains in effect.
 ; sti re-enables interrupts (the CPU clears IF on INT).
 %macro syscall_ret_cf 0
+%ifdef DEBUG
+    dec byte [cs:BIB_INT_DEPTH]
+%endif
     sti
     retf 2
+%endmacro
+
+; syscall_iret — normal IRET exit with depth tracking
+%macro syscall_iret 0
+%ifdef DEBUG
+    dec byte [cs:BIB_INT_DEPTH]
+%endif
+    iret
 %endmacro
 
 
@@ -306,7 +317,7 @@ puts:
 ; PADDING — fill to sector boundary
 ; =============================================================================
 %ifdef DEBUG
-times (12 * 512) - ($ - $$) db 0
+times (14 * 512) - ($ - $$) db 0
 %else
 times (8 * 512) - ($ - $$) db 0
 %endif

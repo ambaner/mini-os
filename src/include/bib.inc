@@ -16,3 +16,4 @@ BIB_DRIVE     equ 0x0600            ; 1 byte: BIOS boot drive number
 BIB_A20       equ 0x0601            ; 1 byte: A20 gate status
 BIB_PART_LBA  equ 0x0602            ; 4 bytes: partition start LBA
 BIB_BOOT_MODE equ 0x0606            ; 1 byte: boot mode (0=release, 1=debug)
+BIB_INT_DEPTH equ 0x0607            ; 1 byte: INT nesting depth (debug only)

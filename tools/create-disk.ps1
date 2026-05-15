@@ -76,6 +76,7 @@ param(
     [Parameter(Mandatory)][string]$KernelDbgPath,
     [Parameter(Mandatory)][string]$ShellDbgPath,
     [Parameter(Mandatory)][string]$MmDbgPath,
+    [string[]]$UserPrograms = @(),
     [Parameter(Mandatory)][string]$OutputPath,
     [int]$SizeMB = 16,
     [int]$PartitionStartLBA = 2048,
@@ -144,6 +145,15 @@ $files = @(
     @{ Name = 'SHELLD  SYS'; Attr = $MNFS_ATTR_SYSTEM -bor $MNFS_ATTR_EXEC; Bytes = $shellDbgBytes }
     @{ Name = 'MMD     SYS'; Attr = $MNFS_ATTR_SYSTEM; Bytes = $mmDbgBytes }
 )
+
+# Add user programs (.MNX files)
+foreach ($progPath in $UserPrograms) {
+    $progBytes = Read-Binary $progPath ([System.IO.Path]::GetFileNameWithoutExtension($progPath).ToUpper()) 'MNEX'
+    $baseName = [System.IO.Path]::GetFileNameWithoutExtension($progPath).ToUpper()
+    # Pad name to 8 chars, extension to 3 chars (8.3 format)
+    $paddedName = $baseName.PadRight(8).Substring(0, 8) + 'MNX'
+    $files += @{ Name = $paddedName; Attr = $MNFS_ATTR_EXEC; Bytes = $progBytes }
+}
 
 if ($files.Count -gt $MNFS_MAX_ENTRIES) {
     throw "Too many files ($($files.Count)) — MNFS supports max $MNFS_MAX_ENTRIES."

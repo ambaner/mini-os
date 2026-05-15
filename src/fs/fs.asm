@@ -116,6 +116,7 @@ fs_init:
 ; =============================================================================
 fs_syscall_handler:
 %ifdef DEBUG
+    inc byte [cs:BIB_INT_DEPTH]        ; Track total INT nesting (shared counter)
     push si
     push ax
     push bx
@@ -156,8 +157,7 @@ fs_syscall_handler:
     je .fn_get_info
 
     ; Unknown function
-    stc
-    iret
+    jmp fs_iret_cf_set
 
 %ifdef DEBUG
 .fs_trace_pfx: db '[FS] ', 0
@@ -204,8 +204,7 @@ fs_syscall_handler:
     pop di
     pop si
     pop ax
-    clc
-    iret
+    jmp fs_iret_cf_clear
 
 ; ─── FS_FIND_FILE (AH=0x02) ──────────────────────────────────────────────────
 ; Search cached directory for a file by 11-byte 8.3 name.
@@ -214,6 +213,8 @@ fs_syscall_handler:
 ;           EAX = start sector (partition-relative)
 ;           CX  = size in sectors
 ;           EDX = size in bytes
+;           DL (low byte of EDX) also available; DH clobbered
+;           BL  = attribute byte
 ;         CF set = not found
 ; ──────────────────────────────────────────────────────────────────────────────
 .fn_find_file:
@@ -259,6 +260,12 @@ fs_syscall_handler:
     pop di                          ; DI → matching entry start
     pop cx                          ; Discard count
 
+    ; Save attribute byte to temp (before we clobber registers)
+    push ax
+    mov al, [es:di + MNFS_ENT_ATTR]
+    mov [cs:.ff_attr_tmp], al
+    pop ax
+
     ; Extract fields from the matched entry (ES:DI relative)
     mov eax, [es:di + MNFS_ENT_START]
     mov cx, [es:di + MNFS_ENT_SECTORS]
@@ -267,16 +274,18 @@ fs_syscall_handler:
     pop es                          ; Restore caller's ES
     pop bx
     pop di
-    clc
-    iret
+
+    ; Return attribute in BL
+    mov bl, [cs:.ff_attr_tmp]
+    jmp fs_iret_cf_clear
 
 .ff_not_found:
     pop bx
     pop di
-    stc
-    iret
+    jmp fs_iret_cf_set
 
 .ff_caller_si: dw 0                 ; Saved caller's filename pointer
+.ff_attr_tmp:  db 0                 ; Temp storage for attribute byte
 
 ; ─── FS_READ_FILE (AH=0x03) ──────────────────────────────────────────────────
 ; Read a file's contents from disk into the caller's buffer.
@@ -333,9 +342,9 @@ fs_syscall_handler:
     pop di                          ; DI → matched entry
     pop cx                          ; Discard count
 
-    ; Get file's start sector and actual size
-    mov edi, [es:di + MNFS_ENT_START]
+    ; Read sectors BEFORE loading EDI (which clobbers DI)
     mov cx, [es:di + MNFS_ENT_SECTORS]
+    mov edi, [es:di + MNFS_ENT_START]
     pop es                          ; Restore caller's ES
 
     ; Clamp to caller's max sectors
@@ -347,14 +356,50 @@ fs_syscall_handler:
     ; Calculate absolute LBA = partition_lba + start_sector
     add edi, [BIB_PART_LBA]
 
-    ; Read via kernel's SYS_READ_SECTOR (EDI = LBA)
-    mov es, [cs:.rf_buf_seg]
-    mov bx, [cs:.rf_buf_off]
-    mov cl, [cs:.rf_actual]         ; CL = sectors to read
+    ; Read via direct INT 0x13 (avoids nested INT 0x80 which causes DMA errors
+    ; in Hyper-V due to triple-nested interrupt context)
+    xor ch, ch
+    mov cl, [cs:.rf_actual]         ; CX = sectors to read
+    mov [cs:.rf_dap_lba], edi
+    mov [cs:.rf_dap_sectors], cx
+    mov ax, [cs:.rf_buf_off]
+    mov [cs:.rf_dap_buf], ax
+    mov ax, [cs:.rf_buf_seg]
+    mov [cs:.rf_dap_buf+2], ax
 
-    mov ah, SYS_READ_SECTOR
-    int 0x80
+%ifdef DEBUG
+    ; --- DAP dump before INT 0x13 ---
+    push cx
+    push si
+    mov si, fs_dbg_dap_pfx          ; "[FS] DAP: "
+    call serial_puts
+    mov si, .rf_dap
+    mov cx, 16
+.rf_dap_dump:
+    lodsb
+    call serial_hex8
+    mov al, ' '
+    call serial_putc
+    loop .rf_dap_dump
+    call serial_crlf
+    pop si
+    pop cx
+%endif
+
+    mov si, .rf_dap                 ; DS:SI → our DAP (DS=0, flat model)
+    mov dl, [BIB_DRIVE]
+    mov ah, 0x42
+    sti                             ; BIOS needs interrupts for DMA
+    int 0x13
     jc .rf_disk_err
+
+%ifdef DEBUG
+    push si
+    mov si, fs_dbg_read_ok
+    call serial_puts
+    call serial_crlf
+    pop si
+%endif
 
     ; Success
     mov cx, [cs:.rf_actual]
@@ -362,29 +407,54 @@ fs_syscall_handler:
     pop di
     pop ax
     pop dx
-    clc
-    iret
+    jmp fs_iret_cf_clear
 
 .rf_not_found:
+%ifdef DEBUG
+    push si
+    mov si, fs_dbg_rf_nf            ; "[FS] RF: not_found"
+    call serial_puts
+    call serial_crlf
+    pop si
+%endif
     pop bx
     pop di
     pop ax
     pop dx
-    stc
-    iret
+    jmp fs_iret_cf_set
 
 .rf_disk_err:
+%ifdef DEBUG
+    push si
+    push ax
+    mov si, fs_dbg_disk_err         ; "[FS] INT13 ERR AH="
+    call serial_puts
+    mov al, ah
+    call serial_hex8
+    call serial_crlf
+    pop ax
+    pop si
+%endif
     pop bx
     pop di
     pop ax
     pop dx
-    stc
-    iret
+    jmp fs_iret_cf_set
 
 .rf_buf_off:  dw 0
 .rf_buf_seg:  dw 0
 .rf_max:      dw 0
 .rf_actual:   dw 0
+
+; Local DAP for direct INT 0x13 (avoids nested INT 0x80)
+.rf_dap:
+    db 0x10, 0                      ; Size=16, reserved=0
+.rf_dap_sectors:
+    dw 0                            ; Sector count
+.rf_dap_buf:
+    dw 0, 0                         ; Buffer offset, segment
+.rf_dap_lba:
+    dd 0, 0                         ; 64-bit LBA
 
 ; ─── FS_GET_INFO (AH=0x04) ───────────────────────────────────────────────────
 ; Return filesystem metadata.
@@ -398,8 +468,7 @@ fs_syscall_handler:
     mov ch, MNFS_MAX_ENTRIES
     mov dx, [cs:dir_cache + MNFS_HDR_TOTAL]
     mov bx, [cs:dir_cache + MNFS_HDR_CAPACITY]
-    clc
-    iret
+    jmp fs_iret_cf_clear
 
 ; =============================================================================
 ; DATA
@@ -410,6 +479,55 @@ cached_count:  db 0                  ; Cached file count (from directory header)
 ; This is read once during init and used for all subsequent lookups.
 dir_cache:
     times 512 db 0
+
+; =============================================================================
+; IRET Helpers — properly propagate CF via the interrupt stack frame
+;
+; Problem: `clc; iret` does NOT work because `iret` pops FLAGS from the stack
+; (the caller's saved FLAGS), ignoring the current FLAGS register.
+; Solution: Use `retf 2` which pops IP and CS but DISCARDS the saved FLAGS
+; (adds 2 to SP), preserving the handler's current FLAGS (including CF).
+; `sti` is needed because `int` clears IF on entry.
+;
+; This matches the kernel's syscall_ret_cf pattern (see kernel.asm §comment).
+; =============================================================================
+
+; Clear CF in handler FLAGS and return from interrupt
+fs_iret_cf_clear:
+%ifdef DEBUG
+    push si
+    mov si, fs_dbg_ret_ok
+    call serial_puts
+    call serial_crlf
+    pop si
+    dec byte [cs:BIB_INT_DEPTH]        ; Track total INT nesting
+%endif
+    clc
+    sti
+    retf 2
+
+; Set CF in handler FLAGS and return from interrupt
+fs_iret_cf_set:
+%ifdef DEBUG
+    push si
+    mov si, fs_dbg_ret_err
+    call serial_puts
+    call serial_crlf
+    pop si
+    dec byte [cs:BIB_INT_DEPTH]        ; Track total INT nesting
+%endif
+    stc
+    sti
+    retf 2
+
+%ifdef DEBUG
+fs_dbg_ret_ok:   db '[FS] -> OK', 0
+fs_dbg_ret_err:  db '[FS] -> ERR (CF=1)', 0
+fs_dbg_read_ok:  db '[FS] READ_SECTOR OK', 0
+fs_dbg_dap_pfx:  db '[FS] DAP: ', 0
+fs_dbg_disk_err: db '[FS] INT13 ERR AH=', 0
+fs_dbg_rf_nf:    db '[FS] RF: not_found', 0
+%endif
 
 ; =============================================================================
 ; Serial I/O functions (debug build only — placed after FS code to avoid
