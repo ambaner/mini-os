@@ -1,28 +1,43 @@
 {
-  "timestamp": "2026-05-15T20:16:31.953524+00:00",
+  "timestamp": "2026-05-15T20:54:47.061225+00:00",
   "overall_coverage": 43.9,
   "total_addresses": 670,
   "hit_addresses": 294,
+  "branch_coverage": 87.0,
+  "branch_outcomes_total": 100,
+  "branch_outcomes_covered": 87,
   "routines": {
     "mm_allocator": {
       "coverage": 39.4,
       "total": 363,
-      "hit": 143
+      "hit": 143,
+      "branch_coverage": 84.1,
+      "branches_total": 22,
+      "branches_full": 15
     },
     "shell_parse_args": {
       "coverage": 52.7,
       "total": 129,
-      "hit": 68
+      "hit": 68,
+      "branch_coverage": 89.3,
+      "branches_total": 14,
+      "branches_full": 11
     },
     "run_parse_filename": {
       "coverage": 42.8,
       "total": 152,
-      "hit": 65
+      "hit": 65,
+      "branch_coverage": 87.5,
+      "branches_total": 12,
+      "branches_full": 9
     },
     "strcmp": {
       "coverage": 69.2,
       "total": 26,
-      "hit": 18
+      "hit": 18,
+      "branch_coverage": 100.0,
+      "branches_total": 2,
+      "branches_full": 2
     }
   }
 }

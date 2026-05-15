@@ -5,54 +5,70 @@
     <title>mini-os Coverage Report</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-               max-width: 800px; margin: 40px auto; padding: 0 20px;
+               max-width: 900px; margin: 40px auto; padding: 0 20px;
                color: #24292e; background: #fff; }
         h1 { border-bottom: 1px solid #e1e4e8; padding-bottom: 8px; }
-        .overall { font-size: 1.3em; margin: 20px 0; padding: 16px;
+        .overall { font-size: 1.1em; margin: 20px 0; padding: 16px;
                     background: #f6f8fa; border-radius: 6px; }
+        .metrics { display: flex; gap: 32px; }
+        .metric { flex: 1; }
         table { border-collapse: collapse; width: 100%; margin-top: 20px; }
         th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #e1e4e8; }
         th { background: #f6f8fa; font-weight: 600; }
         code { font-family: 'SFMono-Regular', Consolas, monospace; }
         .footer { margin-top: 40px; color: #6a737d; font-size: 0.85em; }
+        a { color: #0366d6; }
     </style>
 </head>
 <body>
     <h1>mini-os Unit Test Coverage</h1>
     <div class="overall">
-        Overall: <code>████░░░░░░</code> <strong>44%</strong>
-        (294/670 instruction addresses)
+        <div class="metrics">
+            <div class="metric">
+                <strong>Statement:</strong> <code>████░░░░░░</code> <strong>44%</strong>
+                (294/670 addresses)
+            </div>
+            <div class="metric">
+                <strong>Branch:</strong> <code>████████░░</code> <strong>87%</strong>
+                (87/100 outcomes)
+            </div>
+        </div>
     </div>
     <table>
-        <tr><th>Routine</th><th>Total Addrs</th><th>Hit</th><th>Coverage</th></tr>
+        <tr><th>Routine</th><th>Total Addrs</th><th>Hit</th><th>Statement</th><th>Branch</th></tr>
         <tr>
             <td>mm_allocator</td>
             <td>363</td>
             <td>143</td>
             <td><code>███░░░░░░░</code> 39%</td>
+            <td><code>████████░░</code> 84% (15/22)</td>
         </tr>
         <tr>
             <td>run_parse_filename</td>
             <td>152</td>
             <td>65</td>
             <td><code>████░░░░░░</code> 43%</td>
+            <td><code>████████░░</code> 88% (9/12)</td>
         </tr>
         <tr>
             <td>shell_parse_args</td>
             <td>129</td>
             <td>68</td>
             <td><code>█████░░░░░</code> 53%</td>
+            <td><code>████████░░</code> 89% (11/14)</td>
         </tr>
         <tr>
             <td>strcmp</td>
             <td>26</td>
             <td>18</td>
             <td><code>██████░░░░</code> 69%</td>
+            <td><code>██████████</code> 100% (2/2)</td>
         </tr>
 
     </table>
     <p class="footer">
-        Generated 2026-05-15 20:16 UTC
+        Generated 2026-05-15 20:54 UTC
+        · <a href="trend.html">Coverage Trend →</a>
         · Tier 1 only (pure-logic unit tests via Unicorn Engine)
         · See <a href="https://github.com/AmbaneP/mini-os/blob/main/doc/TESTING.md">TESTING.md</a>
     </p>

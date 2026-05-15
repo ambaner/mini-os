@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>mini-os Coverage Trend</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+               max-width: 900px; margin: 40px auto; padding: 0 20px;
+               color: #24292e; background: #fff; }
+        h1 { border-bottom: 1px solid #e1e4e8; padding-bottom: 8px; }
+        .chart-container { position: relative; height: 400px; margin: 20px 0; }
+        .footer { margin-top: 40px; color: #6a737d; font-size: 0.85em; }
+        a { color: #0366d6; }
+    </style>
+</head>
+<body>
+    <h1>Coverage Trend</h1>
+    <div class="chart-container">
+        <canvas id="trendChart"></canvas>
+    </div>
+    <p class="footer">
+        <a href="index.html">← Current Coverage Report</a>
+        · Shows last 50 CI runs
+    </p>
+    <script>
+    fetch('history.json')
+        .then(r => r.json())
+        .then(history => {
+            const labels = history.map(h => {
+                const d = new Date(h.timestamp);
+                return d.toLocaleDateString('en-US', {month:'short', day:'numeric'});
+            });
+            const stmtData = history.map(h => h.statement_coverage);
+            const branchData = history.map(h => h.branch_coverage);
+
+            new Chart(document.getElementById('trendChart'), {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Statement Coverage %',
+                            data: stmtData,
+                            borderColor: '#2188ff',
+                            backgroundColor: 'rgba(33, 136, 255, 0.1)',
+                            fill: true,
+                            tension: 0.3,
+                        },
+                        {
+                            label: 'Branch Coverage %',
+                            data: branchData,
+                            borderColor: '#28a745',
+                            backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                            fill: true,
+                            tension: 0.3,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: 100,
+                            title: { display: true, text: 'Coverage %' }
+                        }
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'mini-os Test Coverage Over Time'
+                        }
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>
