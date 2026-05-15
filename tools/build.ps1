@@ -8,7 +8,7 @@
     2. Assembles shared components: MBR, VBR, LOADER
     3. Assembles release variants: FS, KERNEL, SHELL
     4. Assembles debug variants: FSD, KERNELD, SHELLD (with -dDEBUG)
-    5. Creates a partitioned raw disk image with all 9 MNFS files
+    5. Creates a partitioned raw disk image with all 7 MNFS files
     6. Wraps the raw image as a VHD
 
 .PARAMETER Clean

@@ -41,9 +41,9 @@
 ; =============================================================================
 fs_magic        db 'MNFS'           ; Magic identifier — filesystem module
 %ifdef DEBUG
-fs_sectors      dw 4                ; Module size in sectors (debug build)
+fs_sectors      dw 5                ; Module size in sectors (debug build)
 %else
-fs_sectors      dw 2                ; Module size in sectors (release build)
+fs_sectors      dw 3                ; Module size in sectors (release build)
 %endif
 
 ; =============================================================================
@@ -125,7 +125,7 @@ fs_syscall_handler:
     call serial_puts
 
     movzx bx, ah
-    cmp bx, 4
+    cmp bx, 5
     ja .fs_trace_noname
     shl bx, 1
     mov si, [cs:.fs_name_table + bx]
@@ -155,6 +155,8 @@ fs_syscall_handler:
     je .fn_read_file
     cmp ah, FS_GET_INFO
     je .fn_get_info
+    cmp ah, FS_FIND_BASE
+    je .fn_find_base
 
     ; Unknown function
     jmp fs_iret_cf_set
@@ -166,12 +168,14 @@ fs_syscall_handler:
 .fsn_02: db 'FIND_FILE', 0
 .fsn_03: db 'READ_FILE', 0
 .fsn_04: db 'GET_INFO', 0
+.fsn_05: db 'FIND_BASE', 0
 .fs_name_table:
     dw 0            ; 0x00 — unused
     dw .fsn_01      ; 0x01
     dw .fsn_02      ; 0x02
     dw .fsn_03      ; 0x03
     dw .fsn_04      ; 0x04
+    dw .fsn_05      ; 0x05
 %endif
 
 ; ─── FS_LIST_FILES (AH=0x01) ─────────────────────────────────────────────────
@@ -286,6 +290,93 @@ fs_syscall_handler:
 
 .ff_caller_si: dw 0                 ; Saved caller's filename pointer
 .ff_attr_tmp:  db 0                 ; Temp storage for attribute byte
+
+; ─── FS_FIND_BASE (AH=0x05) ─────────────────────────────────────────────────
+; Find a file by its 8-byte base name only (ignores extension).
+; Returns the first matching entry regardless of extension.
+; Input:  DS:SI = 8-byte space-padded base name
+; Output: CF clear = found
+;           EAX = start sector (partition-relative)
+;           CX  = file size in sectors
+;           EDX = file size in bytes
+;           BL  = attribute byte
+;         CF set = not found
+; ──────────────────────────────────────────────────────────────────────────────
+.fn_find_base:
+    push di
+
+    ; Save caller's name pointer
+    mov [cs:.fb_caller_si], si
+
+    ; Set up search through cached directory
+    movzx cx, byte [cs:cached_count]
+    test cx, cx
+    jz .fb_not_found
+
+    push es
+    push cs
+    pop es                          ; ES = CS (our cache segment)
+    mov di, dir_cache + MNFS_HDR_SIZE
+
+.fb_loop:
+    push cx
+    push di
+
+    ; Compare only first 8 bytes (name portion, not extension)
+    mov si, [cs:.fb_caller_si]
+    mov cx, 8
+    repe cmpsb
+    je .fb_match
+
+    pop di
+    pop cx
+    add di, MNFS_ENTRY_SIZE
+    dec cx
+    jnz .fb_loop
+
+    pop es
+    jmp .fb_not_found
+
+.fb_match:
+    pop di                          ; DI → matching entry start
+    pop cx                          ; Discard count
+
+    ; Copy found extension (bytes 8-10) back into caller's name buffer
+    ; so caller can use full 11-byte name for FS_READ_FILE
+    push si
+    mov si, [cs:.fb_caller_si]
+    mov al, [es:di + 8]             ; Extension byte 0
+    mov [ds:si + 8], al
+    mov al, [es:di + 9]             ; Extension byte 1
+    mov [ds:si + 9], al
+    mov al, [es:di + 10]            ; Extension byte 2
+    mov [ds:si + 10], al
+    pop si
+
+    ; Save attribute byte
+    push ax
+    mov al, [es:di + MNFS_ENT_ATTR]
+    mov [cs:.fb_attr_tmp], al
+    pop ax
+
+    ; Extract fields from matched entry
+    mov cx, [es:di + MNFS_ENT_SECTORS]
+    mov edx, [es:di + MNFS_ENT_BYTES]
+    mov eax, [es:di + MNFS_ENT_START]
+
+    pop es                          ; Restore caller's ES
+    pop di
+
+    ; Return attribute in BL
+    mov bl, [cs:.fb_attr_tmp]
+    jmp fs_iret_cf_clear
+
+.fb_not_found:
+    pop di
+    jmp fs_iret_cf_set
+
+.fb_caller_si: dw 0
+.fb_attr_tmp:  db 0
 
 ; ─── FS_READ_FILE (AH=0x03) ──────────────────────────────────────────────────
 ; Read a file's contents from disk into the caller's buffer.
@@ -539,7 +630,7 @@ fs_dbg_rf_nf:    db '[FS] RF: not_found', 0
 ; PADDING — fill to sector boundary
 ; =============================================================================
 %ifdef DEBUG
-times (4 * 512) - ($ - $$) db 0
+times (5 * 512) - ($ - $$) db 0
 %else
-times (2 * 512) - ($ - $$) db 0
+times (3 * 512) - ($ - $$) db 0
 %endif

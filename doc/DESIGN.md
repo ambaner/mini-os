@@ -7,15 +7,17 @@ architecture. The project is educational — designed so anyone can clone the re
 build a bootable disk image, and run it in a Hyper-V virtual machine with no prior
 OS-development experience.
 
-The current milestone is **M8: Memory Manager** — the MBR chain-loads a
+The current milestone is **M9: Program Loader** — the MBR chain-loads a
 minimal VBR, which finds and loads LOADER.SYS from the MNFS directory, LOADER
-enables A20 and finds KERNEL.SYS, the kernel installs INT 0x80 syscalls, loads
-FS.SYS (filesystem module with INT 0x81 API), loads MM.SYS (heap allocator with
-INT 0x82 API), and finally loads the interactive shell (SHELL.SYS) — all file
-locations discovered via directory lookup, no hardcoded disk offsets.  Debug
-builds add serial logging, syscall tracing, user-mode debug syscalls, assertion
-macros, and CPU fault handlers.  Fault handlers are present in both release and
-debug builds (PIC remapped to avoid IRQ/exception vector conflicts).
+enables A20 and presents a boot menu, the kernel installs INT 0x80 syscalls,
+loads FS.SYS (filesystem module with INT 0x81 API), loads MM.SYS (heap
+allocator with INT 0x82 API), and finally loads the interactive shell
+(SHELL.SYS) — all file locations discovered via directory lookup, no hardcoded
+disk offsets.  The shell can load and execute user programs (`.MNX` files) from
+disk into a 26 KB Transient Program Area.  Debug builds add serial logging,
+syscall tracing, user-mode debug syscalls, assertion macros, INT depth tracking,
+DAP hex dumps, and CPU fault handlers.  Fault handlers are present in both
+release and debug builds (PIC remapped to avoid IRQ/exception vector conflicts).
 
 ### Design Principles
 
@@ -300,21 +302,21 @@ SHELL Header:
 > extension because it is part of the system boot chain — the kernel loads it
 > directly into system memory at a fixed address (0x3000), it never returns
 > control to the kernel, and it has unrestricted access to all INT vectors.
-> Future user-mode programs loaded on demand into the TPA (0x9000+) will use
-> the `.MNX` extension instead.
+> User-mode programs loaded on demand into the TPA (0x9000+) use the `.MNX`
+> extension instead.
 
 ### 2.10 File Extension Conventions
 
 | Extension | Meaning | Loaded by | Memory region |
 |-----------|---------|-----------|---------------|
 | `.SYS`    | System binary — part of the trusted boot chain | Kernel (at boot) | Fixed system addresses (0x0800–0x4FFF) |
-| `.MNX`    | User-mode executable (MNEX format, future) | Shell `run` command | TPA at 0x9000+ |
+| `.MNX`    | User-mode executable (MNEX format) | Shell (implicit execution) | TPA at 0x9000+ |
 | (none)    | Raw boot sectors (MBR, VBR) | BIOS / MBR | 0x7C00 |
 
 System binaries (`.SYS`) are loaded at boot time to fixed memory addresses and
 remain resident for the lifetime of the OS.  They are marked with
-`ATTR_SYSTEM` (bit 0) in the MNFS directory and cannot be loaded by the
-shell's `run` command.
+`ATTR_SYSTEM` (bit 0) in the MNFS directory and cannot be executed as user
+programs.
 
 User executables (`.MNX`) are loaded on demand into the Transient Program Area
 (TPA) at 0x9000 and must contain an MNEX header with the `'MNEX'` magic.  They
@@ -358,7 +360,7 @@ with no headers — exactly what the BIOS expects.
 ## 3. Interactive Shell
 
 After the boot chain (MBR → VBR → LOADER → KERNEL → FS.SYS → MM.SYS → SHELL.SYS), the shell
-clears the screen, displays a version banner (`MNOS v0.6.0`), and enters an
+clears the screen, displays a version banner, and enters an
 interactive command loop with a `mnos:\>` prompt.
 
 The shell reads boot parameters (boot drive, A20 status) from the Boot Info
@@ -372,8 +374,9 @@ The shell is a simple read-eval-print loop:
 1. Display the prompt `mnos:\>`
 2. Read a line of input via `readline` (INT 16h, with backspace and auto-lowercase)
 3. Compare the input against known command strings via `strcmp`
-4. Dispatch to the matching handler, or print `Unknown command: <input>`
-5. After the command completes, return to step 1
+4. If recognized, dispatch to the matching handler
+5. If unrecognized, attempt implicit program execution (load `.MNX` from disk)
+6. After the command completes, return to step 1
 
 ### 3.2 Commands
 
@@ -387,7 +390,9 @@ The shell is a simple read-eval-print loop:
 | `cls` | Clear the screen and re-display banner |
 | `reboot` | Warm-reboot the system (BIOS reset vector) |
 
-Unknown commands print `Unknown command: <input>` and re-prompt.
+Unknown commands are treated as program names — the shell searches for a
+matching `.MNX` file and executes it if found (see
+[PROGRAM-LOADER.md](PROGRAM-LOADER.md)).
 
 ### 3.3 `sysinfo` Command
 

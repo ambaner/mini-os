@@ -1053,6 +1053,13 @@ builds.  See `syscalls.inc` and `doc/DEBUGGING.md` §4.7 for details.
 | 0x21 | `SYS_DBG_HEX16` | Print tagged hex value | Serial (COM1) | Serial / syslog |
 | 0x22 | `SYS_DBG_REGS`  | Dump registers with tag | Serial (COM1) | Serial / syslog |
 
+**Program loader syscalls (0x23–0x24):** Implemented in v0.9.6.  These support
+the program loader — SYS_EXIT allows programs to terminate from any call depth,
+and SYS_GET_ARGS provides access to command-line arguments passed via `run`.
+
+| 0x23 | `SYS_EXIT` | Terminate running program | Restore shell SP + ret | — |
+| 0x24 | `SYS_GET_ARGS` | Get command-line arguments | Read [SHELL_ARGS_PTR] | — |
+
 ### 7.3 Stability Guarantee
 
 Following the Linux model (not Windows), **syscall numbers are a stable ABI**.

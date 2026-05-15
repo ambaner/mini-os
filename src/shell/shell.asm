@@ -28,6 +28,7 @@
 ; =============================================================================
 
 %include "syscalls.inc"
+%include "version.inc"
 %include "mnfs.inc"
 %include "memory.inc"
 
@@ -129,15 +130,13 @@ shell_prompt:
     call strcmp
     je cmd_dir
 
-    ; Unknown command
-    mov si, msg_unknown
-    mov ah, SYS_PRINT_STRING
-    int 0x80
-    jmp shell_prompt
+    ; Unknown command — try to execute it as a program
+    jmp cmd_run_implicit
 
 
 %include "shell_cmd_simple.inc"
 %include "shell_cmd_dir.inc"
+%include "shell_cmd_run.inc"
 %include "shell_cmd_mem.inc"
 %include "shell_cmd_sysinfo.inc"
 

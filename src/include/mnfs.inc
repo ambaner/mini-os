@@ -56,5 +56,6 @@ FS_LIST_FILES     equ 0x01           ; ES:BX=buf → CL=count, buf=directory
 FS_FIND_FILE      equ 0x02           ; DS:SI=name → EAX=start, CX=sectors
 FS_READ_FILE      equ 0x03           ; DS:SI=name, ES:BX=buf, CX=max → CX=read
 FS_GET_INFO       equ 0x04           ; → AL=ver, CL=count, CH=max, DX=total
+FS_FIND_BASE      equ 0x05           ; DS:SI=8-byte name → EAX=start, CX=sectors
 
-FS_SYSCALL_MAX    equ 0x04           ; Highest valid FS syscall number
+FS_SYSCALL_MAX    equ 0x05           ; Highest valid FS syscall number

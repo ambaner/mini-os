@@ -35,6 +35,7 @@
 %include "memory.inc"
 %include "mnfs.inc"
 %include "syscalls.inc"
+%include "version.inc"
 %define ASSERT_HAS_SCREEN
 %include "debug.inc"
 

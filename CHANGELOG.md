@@ -6,9 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [0.9.6] - 2026-05-15
 
 ### Added
+- **Program Loader** — any unrecognized shell command is treated as a program
+  name; loads `.MNX` user programs into 26 KB TPA at 0x9000.  Extension is
+  optional — typing `hello` finds and runs `HELLO.MNX` automatically.
+- **FS_FIND_BASE (AH=0x05)** — new FS syscall searches MNFS directory by
+  8-byte base name only (ignoring extension), writes found extension back to
+  caller's buffer for subsequent FS_READ_FILE
+- **HELLO.MNX** — first user-mode demo program (Hello, world!)
+- **SYS_EXIT (0x23)** — new syscall to terminate a program from any call depth;
+  restores shell SP from SHELL_SAVED_SP
+- **SYS_GET_ARGS (0x24)** — new syscall returning command-line argument pointer
+- **Four-layer validation** — file existence, ATTR_SYSTEM check, ATTR_EXEC
+  check, and MNEX magic validation before execution
+- **SHELL_SAVED_SP / SHELL_ARGS_PTR** — ABI slots at 0x7FFE/0x7FFC
 - **INT nesting depth counter** (`BIB_INT_DEPTH` at 0x0607) — shared byte
   tracks total INT 0x80 / INT 0x81 nesting depth, displayed as `D=xx` in
   all syscall entry/exit traces
@@ -19,6 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`syscall_ret_cf` macro** — same for CF-returning syscalls via `retf 2`
 - **FS error traces** — `[FS] DAP: ...`, `[FS] INT13 ERR AH=xx`,
   `[FS] RF: not_found` diagnostics
+- **doc/PROGRAM-LOADER.md** — program loader design document
 
 ### Fixed
 - **EDI-clobbers-DI bug in FS read_file** — `mov edi, [es:di + START]`
@@ -27,9 +41,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Fix: read CX (sectors) before EDI (start LBA).
 
 ### Changed
-- **Kernel debug build** grown from 12 to 14 sectors (DAP dump code + traces)
+- **Heap reduced** from 30 KB to 4 KB (0x8000-0x8FFF) to make room for 26 KB TPA
+- **FS_FIND_FILE** now returns attribute byte in BL (ABI extension)
+- **FS.SYS** grown from 2 to 3 sectors (release), 4 to 5 sectors (debug)
+  for FS_FIND_BASE implementation
+- **SHELL.SYS** grown from 14 to 16 sectors (program execution + parsing)
+- **Kernel debug build** grown from 12 to 14 sectors (DAP dump + trace code)
 - **Syscall trace format** now includes `D=xx` depth and `CF=x IF=x` flags
+- **Shell `mem` command** updated to show 4 KB heap + 26 KB TPA layout
+- **Kernel version** bumped to 0x0906
 - **DEBUGGING.md** updated to v1.4 with §4.8 (INT depth & DAP diagnostics)
+- **MEMORY-LAYOUT.md** BIB table updated with `int_depth` field
 
 ---
 

@@ -1,14 +1,10 @@
 # mini-os
 
-A minimalistic operating system, built from scratch — currently at **v0.9.5**.
-MBR reads the partition table, chain-loads a VBR which loads a stage-2 loader
-(A20 gate enablement + boot menu), which loads a 16-bit kernel (KERNEL.SYS) that provides
-an INT 0x80 syscall interface, which loads the filesystem module (FS.SYS) with
-an INT 0x81 filesystem API, the memory manager (MM.SYS) with an INT 0x82
-dynamic heap allocator, and finally the interactive shell (`mnos:\>`) with
-commands for system info, CPU details, memory diagnostics, directory listing,
-version info, and more.  A boot menu lets the user choose between Release and
-Debug kernel configurations from a single disk image.
+A minimalistic operating system built from scratch in x86 assembly — currently
+at **v0.9.6**.  Features a multi-stage boot loader, a microkernel-style
+architecture with separate modules for filesystem and memory management, and an
+interactive shell that can load and run user programs.  Targets Hyper-V Gen 1
+VMs with a unified VHD containing both Release and Debug configurations.
 
 ![mini-os booting in Hyper-V](doc/booted.gif)
 
@@ -90,7 +86,7 @@ VHD — no need to rebuild or swap images.
 After the boot chain completes, you'll see the shell:
 
 ```
-  MNOS v0.9.5 [Release]
+  MNOS v0.9.6 [Release]
 
 mnos:\>
 ```
@@ -106,6 +102,9 @@ Type `help` for a list of commands:
 | `help` | List available commands |
 | `cls` | Clear screen |
 | `reboot` | Warm reboot |
+
+Any unrecognized command is treated as a program name — e.g., typing `hello`
+runs `HELLO.MNX`.  The `.MNX` extension is optional.
 
 ```powershell
 Start-VM -Name 'mini-os'           # start the VM
@@ -131,6 +130,7 @@ mini-os/
 │   ├── MEMORY-MANAGER.md     # Memory manager design & implementation (MM.SYS)
 │   ├── CPU-MODES-AND-TRANSITIONS.md  # 16→32→64-bit journey, BIOS vs UEFI
 │   ├── MNEX-BINARY-FORMAT.md # Custom binary format spec, toolchain, build pipeline
+│   ├── PROGRAM-LOADER.md    # Program loader design — implicit execution, TPA, .MNX format
 │   └── SYSTEM-CALLS.md       # User↔kernel boundary, IVT/IDT/SYSCALL mechanisms
 ├── src/
 │   ├── include/               # Shared constants & subroutines (%include)
@@ -158,17 +158,20 @@ mini-os/
 │   │   └── mm.asm             # Memory manager — INT 0x82 API, heap allocator
 │   ├── fs/
 │   │   └── fs.asm             # Filesystem module — INT 0x81 API, MNFS directory cache
+│   ├── programs/
+│   │   └── hello.asm          # HELLO.MNX — first user-mode demo program
 │   └── shell/
 │       ├── shell.asm          # Shell entry point — init, command loop, dispatch
 │       ├── shell_cmd_simple.inc   # Simple commands (ver, help, cls, reboot)
 │       ├── shell_cmd_dir.inc      # dir command (MNFS directory listing)
 │       ├── shell_cmd_mem.inc      # mem command (memory diagnostics)
+│       ├── shell_cmd_run.inc      # Implicit program execution (loader + validation)
 │       ├── shell_cmd_sysinfo.inc  # sysinfo command (5-page hardware info)
 │       ├── shell_readline.inc     # Input handling + utility subroutines
 │       └── shell_data.inc         # String constants + runtime data buffers
 ├── tools/
-│   ├── build.ps1              # Build logic — assembles 9 binaries, creates VHD
-│   ├── create-disk.ps1        # Partitioned raw disk image creator (9 MNFS files)
+│   ├── build.ps1              # Build logic — assembles 10 binaries, creates VHD
+│   ├── create-disk.ps1        # Partitioned raw disk image creator
 │   ├── create-vhd.bat         # VHD tool — batch wrapper
 │   ├── create-vhd.ps1         # Raw image → VHD converter (pure PowerShell)
 │   ├── setup-vm.ps1           # Hyper-V VM create/update logic
@@ -179,12 +182,15 @@ mini-os/
 │       ├── mbr.bin            # MBR binary
 │       ├── vbr.bin            # VBR binary (2 sectors)
 │       ├── loader.sys         # LOADER (3 sectors, shared)
-│       ├── fs.sys             # FS — release (2 sectors)
-│       ├── kernel.sys         # KERNEL — release (7 sectors)
-│       ├── shell.sys          # SHELL — release (14 sectors)
-│       ├── fsd.sys            # FS — debug (4 sectors)
-│       ├── kerneld.sys        # KERNEL — debug (11 sectors)
-│       ├── shelld.sys         # SHELL — debug (14 sectors)
+│       ├── fs.sys             # FS — release (3 sectors)
+│       ├── kernel.sys         # KERNEL — release (8 sectors)
+│       ├── shell.sys          # SHELL — release (16 sectors)
+│       ├── mm.sys             # MM — release (1 sector)
+│       ├── hello.mnx          # HELLO — user program (1 sector)
+│       ├── fsd.sys            # FS — debug (5 sectors)
+│       ├── kerneld.sys        # KERNEL — debug (14 sectors)
+│       ├── shelld.sys         # SHELL — debug (16 sectors)
+│       ├── mmd.sys            # MM — debug (2 sectors)
 │       ├── mini-os.img        # 16 MB raw disk image
 │       └── mini-os.vhd        # Bootable VHD (single unified image)
 ├── build.bat                  # Build entry point
@@ -238,6 +244,10 @@ Additional deep-dive documents:
   implementation: INT 0x82 API (alloc, free, avail, info), MCB header format,
   first-fit algorithm, forward coalescing, heap layout (0x8000–0xF7FF).
 
+- **[doc/PROGRAM-LOADER.md](doc/PROGRAM-LOADER.md)** — Program loader design: implicit
+  execution from the shell prompt, FS_FIND_BASE syscall, TPA memory layout,
+  four-layer validation, SYS_EXIT/SYS_GET_ARGS syscalls, and MNEX format loading.
+
 ## Version History
 
 Each version is a tagged release you can checkout to see the project at that stage.
@@ -267,6 +277,7 @@ Each version is a tagged release you can checkout to see the project at that sta
 | `v0.9.1` | **mem + MM tracing** | Shell `mem` shows heap stats (total/used/free/blocks/largest); memory layout includes MM + heap; debug serial tracing for all MM calls |
 | `v0.9.2` | **MCB owner tags** | Flags byte bits 1-3 carry 3-bit owner ID; MEM_ALLOC DL=owner; shell `mem` block detail walk with owner names; debug trace logs owner |
 | `v0.9.5` | **File extensions** | System binaries renamed `.BIN` → `.SYS` (kernel-loaded, resident); `.MNX` convention for future user-mode executables (shell-loaded, transient) |
+| `v0.9.6` | **Program Loader + Debug Diagnostics** | Implicit program execution (type `hello` to run HELLO.MNX); FS_FIND_BASE syscall; INT depth tracking; DAP hex dump; EDI-clobbers-DI bug fix |
 
 ```cmd
 git checkout v0.1.0      # see the project at any prior milestone

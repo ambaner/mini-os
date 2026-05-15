@@ -4,19 +4,20 @@
 
 ; --- Shell strings -----------------------------------------------------------
 msg_banner      db 13, 10
-                db '  MNOS v0.9.5 ', 0      ; Tag appended at runtime
+                db '  MNOS ', OS_VERSION_STR, ' ', 0      ; Tag appended at runtime
 
 msg_tag_release db '[Release]', 13, 10, 13, 10, 0
 msg_tag_debug   db '[Debug]', 13, 10, 13, 10, 0
 
 msg_prompt      db 'mnos:\>', 0
 
-msg_unknown     db 'Unknown command', 13, 10, 0
+msg_unknown     db 'Unknown command: ', 0
 
 msg_help_text   db 'Available commands:', 13, 10
                 db '  sysinfo  - Display system information (5 pages)', 13, 10
                 db '  mem      - Detailed memory info and layout', 13, 10
                 db '  dir      - List files on disk (MNFS)', 13, 10
+                db '  run      - Run a program (run FILENAME.MNX)', 13, 10
                 db '  ver      - Show version and build info', 13, 10
                 db '  help     - Show this help message', 13, 10
                 db '  cls      - Clear the screen', 13, 10
@@ -32,7 +33,7 @@ str_reboot      db 'reboot', 0
 str_dir         db 'dir', 0
 
 ; --- ver command strings -----------------------------------------------------
-msg_ver_line1   db '  MNOS v0.9.5 ', 0     ; Tag appended at runtime
+msg_ver_line1   db '  MNOS ', OS_VERSION_STR, ' ', 0     ; Tag appended at runtime
 msg_ver_rest    db '  Arch:      x86 real mode (16-bit)', 13, 10
                 db '  Assembler: NASM', 13, 10
                 db '  Platform:  Hyper-V Gen 1', 13, 10
@@ -256,4 +257,28 @@ ivt_index       db 0
 dbg_tag         db 'SHL', 0
 dbg_init        db 'shell starting', 0
 dbg_unknown     db 'unknown command', 0
+dbg_run_exec    db 'launching program', 0
+dbg_run_err_usage    db 'ERR: usage', 0
+dbg_run_err_notfound db 'ERR: file_not_found', 0
+dbg_run_err_noexec   db 'ERR: not_executable', 0
+dbg_run_err_system   db 'ERR: system_file', 0
+dbg_run_err_toolarge db 'ERR: too_large', 0
+dbg_run_err_load     db 'ERR: load_failed', 0
+dbg_run_err_header   db 'ERR: bad_header', 0
+
+; --- run command strings ------------------------------------------------------
+msg_run_usage      db 'Usage: PROGRAM[.MNX] [args...]', 13, 10, 0
+msg_run_not_found  db 'Bad command or file not found', 13, 10, 0
+msg_run_not_exec   db 'Not executable (.mnx required)', 13, 10, 0
+msg_run_system     db 'System module, cannot run in user mode', 13, 10, 0
+msg_run_too_large  db 'Program too large (26 KB max)', 13, 10, 0
+msg_run_load_err   db 'Load error', 13, 10, 0
+msg_run_bad_header db 'Invalid program header', 13, 10, 0
+
+; --- run command data ---------------------------------------------------------
+run_fname_buf   times 11 db 0       ; 8.3 filename buffer (uppercase, padded)
+run_file_sectors dw 0               ; File size in sectors (from FS_FIND_FILE)
+run_args_ptr    dw 0                ; Pointer to argument string in cmd_buf
+run_ext_provided db 0               ; 1 if user typed a dot+extension, 0 if not
+run_empty_args  db 0                ; Empty NUL string for no-args case
 
