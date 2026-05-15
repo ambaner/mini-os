@@ -7,6 +7,7 @@ boundary conditions, and error handling — all via Unicorn Engine emulation.
 import pytest
 from tests.harness.emulator import MiniOSEmulator
 from tests.harness.assembler import assemble_stub
+from tests.conftest import register_coverage
 from tests.harness.constants import (
     CODE_BASE, STACK_TOP,
     HEAP_START, HEAP_END, HEAP_SIZE,
@@ -15,6 +16,12 @@ from tests.harness.constants import (
     MM_ALLOC_ENTRY, MM_FREE_ENTRY, MM_AVAIL_ENTRY,
     MM_INFO_ENTRY, MM_INIT_ENTRY,
 )
+
+
+# Accumulate all executed addresses across tests for coverage
+_all_executed: set[int] = set()
+_binary_size: int = 0
+_code_base: int = 0
 
 
 @pytest.fixture(scope="module")
@@ -26,10 +33,14 @@ def mm_bin():
 @pytest.fixture
 def mm(mm_bin):
     """Create a fresh emulator with MM stub loaded and heap initialized."""
+    global _binary_size, _code_base
     emu = MiniOSEmulator()
     emu.load(mm_bin)
+    _binary_size = emu.code_size
+    _code_base = emu.code_base
     # Run the init entry to set up the heap
     emu.run(MM_INIT_ENTRY)
+    _all_executed.update(emu.coverage_in_binary)
     return emu
 
 
@@ -38,6 +49,7 @@ def _alloc(emu, size, owner=0):
     emu.set_reg("cx", size)
     emu.set_reg("dx", owner & 0xFF)
     emu.run(MM_ALLOC_ENTRY)
+    _all_executed.update(emu.coverage_in_binary)
     return emu.reg("bx"), emu.cf
 
 
@@ -45,18 +57,21 @@ def _free(emu, ptr):
     """Helper: call mm_free with BX=ptr. Returns cf."""
     emu.set_reg("bx", ptr)
     emu.run(MM_FREE_ENTRY)
+    _all_executed.update(emu.coverage_in_binary)
     return emu.cf
 
 
 def _avail(emu):
     """Helper: call mm_avail. Returns (largest, total)."""
     emu.run(MM_AVAIL_ENTRY)
+    _all_executed.update(emu.coverage_in_binary)
     return emu.reg("ax"), emu.reg("dx")
 
 
 def _info(emu):
     """Helper: call mm_info. Returns (total, used, free, blocks)."""
     emu.run(MM_INFO_ENTRY)
+    _all_executed.update(emu.coverage_in_binary)
     return (
         emu.reg("ax"),
         emu.reg("bx"),
@@ -314,3 +329,13 @@ class TestMmInfo:
         assert used == 0
         assert free == HEAP_SIZE
         assert blocks == 1
+
+
+# ─── Coverage registration (runs after all tests in this module) ──────────────
+
+@pytest.fixture(autouse=True, scope="module")
+def _register_coverage_after_all():
+    yield
+    if _binary_size > 0:
+        in_binary = {a for a in _all_executed if _code_base <= a < _code_base + _binary_size}
+        register_coverage("mm_allocator", _binary_size, len(in_binary))
